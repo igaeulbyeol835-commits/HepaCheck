@@ -3,6 +3,12 @@ import pandas as pd
 import plotly.express as px
 from pathlib import Path
 
+# 2단계 데이터 전처리용 scikit-learn 도구
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder
+
 # ---------------------------------------------------------
 # 1. 페이지 기본 설정
 # ---------------------------------------------------------
@@ -390,8 +396,217 @@ st.write(
     "대상자 분포, 검사 수치별 분포, Category별 차이와 결측치 현황을 탐색합니다."
 )
 st.info(
-    "참고: 'Unnamed: 0'은 원본 데이터의 행 번호이므로 이후 모델의 "
-    "독립 변수에서 제외할 예정입니다. 이 화면에서는 원본 구조 확인을 위해 "
-    "그대로 표시합니다. 아직 결측치 대체, 이상치 제거, 인코딩, 모델 학습 및 "
-    "예측은 수행하지 않습니다."
+    "참고: 'Unnamed: 0'은 원본 데이터의 행 번호이므로 독립 변수에서 제외합니다. "
+    "이번 2단계에서는 Category를 이진 타깃으로 변환하고 결측치 대체 및 Sex 인코딩을 "
+    "준비합니다. 모델 학습과 예측은 다음 단계에서 진행합니다."
 )
+
+# ---------------------------------------------------------
+# 12. 2단계 신규 기능: 이진 분류용 데이터 전처리
+# ---------------------------------------------------------
+st.header("10. 데이터 전처리")
+st.write(
+    "일반 헌혈자군과 간 질환 관련 대상자군을 구분할 수 있도록 "
+    "분류 타깃을 만들고, 결측치 대체와 성별 범주형 인코딩을 준비합니다. "
+    "원본 df와 CSV 파일은 변경하지 않습니다."
+)
+
+TARGET_MAPPING = {
+    "0=Blood Donor": 0,
+    "1=Hepatitis": 1,
+    "2=Fibrosis": 1,
+    "3=Cirrhosis": 1,
+    "0": 0, "1": 1, "2": 1, "3": 1,
+}
+SUSPECT_CATEGORIES = {"0s=suspect Blood Donor", "0s"}
+NUMERIC_INPUTS = [
+    "Age", "ALB", "ALP", "ALT", "AST", "BIL",
+    "CHE", "CHOL", "CREA", "GGT", "PROT"
+]
+CATEGORICAL_INPUTS = ["Sex"]
+FEATURE_COLUMNS = NUMERIC_INPUTS + CATEGORICAL_INPUTS
+
+try:
+    preprocessing_required = FEATURE_COLUMNS + ["Category"]
+    preprocessing_missing = [col for col in preprocessing_required if col not in df.columns]
+    if preprocessing_missing:
+        raise ValueError("전처리에 필요한 컬럼이 없습니다: " + ", ".join(preprocessing_missing))
+
+    category_values = df["Category"].astype("string").str.strip()
+    if category_values.isna().any():
+        raise ValueError(
+            "Category에 결측치가 포함되어 있습니다. 정답 그룹을 알 수 없는 행을 "
+            "임의 분류하지 않도록 전처리를 중단했습니다. 원본 데이터를 확인해 주세요."
+        )
+
+    known_categories = set(TARGET_MAPPING) | SUSPECT_CATEGORIES
+    unknown_categories = sorted(set(category_values.astype(str)) - known_categories)
+    if unknown_categories:
+        raise ValueError(
+            "정의되지 않은 Category 값이 발견되었습니다: " + ", ".join(unknown_categories)
+        )
+
+    suspect_mask = category_values.isin(SUSPECT_CATEGORIES)
+    excluded_suspect_count = int(suspect_mask.sum())
+    modeling_source = df.loc[~suspect_mask].copy()
+    modeling_source["Target"] = category_values.loc[~suspect_mask].map(TARGET_MAPPING)
+
+    if modeling_source.empty:
+        raise ValueError("의심 헌혈자를 제외한 뒤 남은 데이터가 없습니다.")
+    if modeling_source["Target"].isna().any():
+        raise ValueError("Target을 생성하지 못한 행이 있습니다. Category 값을 확인해 주세요.")
+
+    # 원본 Category, Unnamed: 0, Target은 독립 변수에서 제외합니다.
+    X_raw = modeling_source[FEATURE_COLUMNS].copy()
+    y = modeling_source["Target"].astype("int64").copy()
+    for column in NUMERIC_INPUTS:
+        X_raw[column] = pd.to_numeric(X_raw[column], errors="coerce")
+
+    # 실제 Sex 값 확인. 원본 열과 df는 수정하지 않습니다.
+    sex_values = modeling_source["Sex"].astype("string").str.strip().replace("", pd.NA)
+    X_raw["Sex"] = sex_values.astype(object).where(sex_values.notna(), float("nan"))
+
+    missing_before_count = int(X_raw.isna().sum().sum())
+    feature_cell_count = int(X_raw.shape[0] * X_raw.shape[1])
+    missing_before_ratio = missing_before_count / feature_cell_count * 100 if feature_cell_count else 0.0
+
+    # 다음 단계에서 train/test 분리 후, 학습 데이터에만 fit할 전처리기 생성 함수
+    def build_preprocessor():
+        numeric_pipeline = Pipeline(steps=[
+            ("imputer", SimpleImputer(strategy="median"))
+        ])
+        categorical_pipeline = Pipeline(steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("onehot", OneHotEncoder(handle_unknown="ignore"))
+        ])
+        return ColumnTransformer(
+            transformers=[
+                ("numeric", numeric_pipeline, NUMERIC_INPUTS),
+                ("categorical", categorical_pipeline, CATEGORICAL_INPUTS),
+            ],
+            remainder="drop"
+        )
+
+    # 화면 확인용 별도 전처리. 전체 데이터 fit 결과이므로 모델 학습에 재사용 금지.
+    preview_preprocessor = build_preprocessor()
+    transformed_array = preview_preprocessor.fit_transform(X_raw)
+    transformed_feature_names = preview_preprocessor.get_feature_names_out()
+    if hasattr(transformed_array, "toarray"):
+        transformed_array = transformed_array.toarray()
+
+    processed_features = pd.DataFrame(
+        transformed_array, columns=transformed_feature_names, index=X_raw.index
+    )
+    processed_preview = processed_features.copy()
+    processed_preview["Target"] = y
+    processed_preview["대상자 그룹"] = y.map({0: "일반 헌혈자군", 1: "간 질환 관련 대상자군"})
+
+    missing_after_count = int(processed_features.isna().sum().sum())
+    processed_cell_count = int(processed_features.shape[0] * processed_features.shape[1])
+    missing_after_ratio = missing_after_count / processed_cell_count * 100 if processed_cell_count else 0.0
+
+    preprocessing_methods = pd.DataFrame([
+        {"변수": c, "변수 유형": "수치형", "결측치 처리 방법": "중앙값(median) 대체", "추가 처리": "없음"}
+        for c in NUMERIC_INPUTS
+    ] + [{
+        "변수": "Sex", "변수 유형": "범주형",
+        "결측치 처리 방법": "최빈값(most_frequent) 대체",
+        "추가 처리": "원-핫 인코딩(One-Hot Encoding)"
+    }])
+
+    st.subheader("10-1. 분류 타깃 생성 및 의심 헌혈자 분리")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("전처리 전 전체 행", f"{len(df):,}건")
+    c2.metric("제외된 의심 헌혈자", f"{excluded_suspect_count:,}건")
+    c3.metric("이진 분류 대상 행", f"{len(modeling_source):,}건")
+    st.info(
+        "의심 헌혈자는 일반 헌혈자 또는 간 질환 관련 대상자라고 확정할 수 없는 "
+        "별도 분류이므로 Target을 임의 부여하지 않고 이진 분류 데이터에서 제외했습니다. "
+        f"제외된 행은 {excluded_suspect_count:,}건이며 원본 데이터에는 그대로 남아 있습니다."
+    )
+    target_description = pd.DataFrame({
+        "원본 Category": ["0=Blood Donor", "1=Hepatitis / 2=Fibrosis / 3=Cirrhosis", "0s=suspect Blood Donor"],
+        "새 Target": ["0", "1", "부여하지 않음"],
+        "처리": ["일반 헌혈자군", "간 질환 관련 대상자군", "이진 분류 데이터에서 제외"]
+    })
+    st.dataframe(target_description, use_container_width=True, hide_index=True)
+
+    st.subheader("10-2. Sex 실제 값과 범주 분포")
+    sex_distribution = (
+        sex_values.fillna("결측").value_counts(dropna=False)
+        .rename_axis("Sex 원본 값").reset_index(name="데이터 개수")
+    )
+    sex_distribution["비율(%)"] = (sex_distribution["데이터 개수"] / len(modeling_source) * 100).round(2)
+    st.dataframe(sex_distribution, use_container_width=True, hide_index=True)
+    st.caption("Sex 원본 값은 보존하며, 변환 결과에서는 관측된 범주를 기준으로 원-핫 인코딩합니다.")
+
+    st.subheader("10-3. 일반 헌혈자군과 간 질환 관련 대상자군 분포")
+    target_counts = y.value_counts().reindex([0, 1], fill_value=0)
+    target_distribution = pd.DataFrame({
+        "Target": [0, 1],
+        "대상자 그룹": ["일반 헌혈자군", "간 질환 관련 대상자군"],
+        "데이터 개수": [int(target_counts.loc[0]), int(target_counts.loc[1])]
+    })
+    target_distribution["비율(%)"] = (target_distribution["데이터 개수"] / len(y) * 100).round(2)
+    st.dataframe(target_distribution, use_container_width=True, hide_index=True)
+    fig_target = px.bar(
+        target_distribution, x="대상자 그룹", y="데이터 개수",
+        color="대상자 그룹", text="데이터 개수",
+        title="이진 분류 대상자 그룹 분포",
+        labels={"대상자 그룹": "대상자 그룹", "데이터 개수": "데이터 개수"}
+    )
+    fig_target.update_traces(textposition="outside")
+    fig_target.update_layout(showlegend=False, yaxis_title="데이터 개수")
+    st.plotly_chart(fig_target, use_container_width=True)
+
+    majority_ratio = float(target_distribution["비율(%)"].max())
+    if target_counts.min() == 0:
+        st.warning("한쪽 대상자 그룹의 데이터가 없습니다. 이진 분류 전에 데이터를 확인해야 합니다.")
+    elif majority_ratio >= 80:
+        st.warning(
+            f"한 집단의 비율이 {majority_ratio:.2f}%로 높아 클래스 불균형 가능성이 큽니다. "
+            "다음 모델링 단계에서는 정확도뿐 아니라 정밀도, 재현율, F1-score, 혼동 행렬을 "
+            "함께 확인하세요. 이번 단계에서는 데이터를 복제하거나 제거하지 않았습니다."
+        )
+    else:
+        st.info("두 집단의 비율을 확인했습니다. 이번 단계에서는 데이터를 복제하거나 제거하지 않았습니다.")
+
+    st.subheader("10-4. 결측치 대체 전후 비교")
+    missing_comparison = pd.DataFrame({
+        "구분": ["전처리 전 입력 변수", "전처리 후 변환 변수"],
+        "행 개수": [len(X_raw), len(processed_features)],
+        "결측 셀 개수": [missing_before_count, missing_after_count],
+        "결측 비율(%)": [round(missing_before_ratio, 2), round(missing_after_ratio, 2)]
+    })
+    st.dataframe(missing_comparison, use_container_width=True, hide_index=True)
+    st.caption("전처리 전은 12개 원본 독립 변수 기준, 전처리 후는 대체 및 원-핫 인코딩된 변수 기준입니다.")
+    st.write("변수별 전처리 방법")
+    st.dataframe(preprocessing_methods, use_container_width=True, hide_index=True)
+
+    st.subheader("10-5. 전처리 결과 요약")
+    s1, s2, s3 = st.columns(3)
+    s1.metric("전처리 전 행 개수", f"{len(X_raw):,}건")
+    s2.metric("전처리 후 행 개수", f"{len(processed_features):,}건")
+    s3.metric("전처리 후 결측 셀", f"{missing_after_count:,}개")
+    st.write("**독립 변수 후보**")
+    st.code(", ".join(FEATURE_COLUMNS), language="text")
+    st.write("**종속 변수(Target)**")
+    st.write("0 = 일반 헌혈자군, 1 = 간염·섬유화·간경변을 포함한 간 질환 관련 대상자군")
+    st.write("**모델 입력에서 제외하는 열**")
+    st.write("Category(정답 원본), Unnamed: 0(원본 행 번호), Target(정답 라벨 자체)")
+    st.write("**원-핫 인코딩 후 생성된 독립 변수**")
+    st.code(", ".join(processed_features.columns.astype(str)), language="text")
+
+    st.subheader("10-6. 최종 전처리 데이터 미리보기")
+    st.dataframe(processed_preview.head(10), use_container_width=True, hide_index=True)
+    st.warning(
+        "데이터 누수 방지 안내: 위 미리보기는 결과 확인을 위해 대상 데이터 전체에 "
+        "전처리기를 fit한 별도 예시입니다. 이 미리보기 또는 preview_preprocessor를 "
+        "모델 학습·평가에 재사용하면 안 됩니다. 다음 단계에서는 먼저 train_test_split으로 "
+        "분리한 뒤 build_preprocessor()로 새 전처리기를 만들고, 학습 데이터에만 "
+        "fit_transform, 테스트 데이터에는 transform을 적용해야 합니다."
+    )
+
+except Exception as error:
+    st.error(f"데이터 전처리 중 문제가 발생했습니다: {error}")
+    st.info("원본 CSV 파일은 수정되지 않았습니다. 필수 컬럼, Category 값, Sex 및 검사 수치의 자료형을 확인해 주세요.")
