@@ -392,13 +392,13 @@ st.header("9. 프로젝트 목적")
 st.write(
     "이번 프로젝트는 혈액 검사 수치와 대상자의 기본 정보를 이용하여 "
     "일반 헌혈자군과 그 외 대상자군을 구분하는 분류 모델을 개발하는 것을 "
-    "목표로 합니다. 이번 단계에서는 모델 개발에 앞서 데이터의 구조, "
-    "대상자 분포, 검사 수치별 분포, Category별 차이와 결측치 현황을 탐색합니다."
+    "목표로 합니다. 데이터 탐색과 전처리를 바탕으로 이번 단계에서는 "
+    "로지스틱 회귀와 랜덤 포레스트 분류 모델을 학습하고 성능을 비교합니다."
 )
 st.info(
     "참고: 'Unnamed: 0'은 원본 데이터의 행 번호이므로 독립 변수에서 제외합니다. "
-    "이번 2단계에서는 Category를 이진 타깃으로 변환하고 결측치 대체 및 Sex 인코딩을 "
-    "준비합니다. 모델 학습과 예측은 다음 단계에서 진행합니다."
+    "Category를 이진 타깃으로 변환하고 결측치 대체 및 Sex 인코딩을 준비합니다. "
+    "모델 학습·평가 단계에서는 학습 데이터에만 전처리 기준을 학습시킵니다."
 )
 
 # ---------------------------------------------------------
@@ -610,3 +610,514 @@ try:
 except Exception as error:
     st.error(f"데이터 전처리 중 문제가 발생했습니다: {error}")
     st.info("원본 CSV 파일은 수정되지 않았습니다. 필수 컬럼, Category 값, Sex 및 검사 수치의 자료형을 확인해 주세요.")
+    st.stop()
+
+
+# ---------------------------------------------------------
+# 13. 3단계 신규 기능: 머신러닝 모델 학습
+# ---------------------------------------------------------
+st.header("11. 머신러닝 모델 학습")
+st.write(
+    "전처리 미리보기용 데이터는 모델 학습에 사용하지 않습니다. "
+    "원본 입력 변수 X_raw와 Target y를 사용해 먼저 학습·테스트 데이터를 분리하고, "
+    "각 모델의 전처리기는 학습 데이터에만 fit합니다."
+)
+
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    accuracy_score,
+    precision_recall_fscore_support,
+    roc_auc_score,
+    confusion_matrix
+)
+from sklearn.model_selection import (
+    train_test_split,
+    StratifiedKFold,
+    cross_val_score
+)
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+try:
+    # 2단계에서 만든 원본 독립 변수와 타깃을 사용합니다.
+    # processed_features는 전체 데이터에 fit된 미리보기이므로 절대 사용하지 않습니다.
+    class_counts_for_split = y.value_counts()
+    if len(class_counts_for_split) != 2 or set(class_counts_for_split.index) != {0, 1}:
+        raise ValueError("Target에 일반 헌혈자군(0)과 간 질환 관련 대상자군(1)이 모두 있어야 합니다.")
+    if int(class_counts_for_split.min()) < 2:
+        raise ValueError(
+            "소수 클래스 데이터가 2건 미만이어서 계층적 학습·테스트 분할을 수행할 수 없습니다."
+        )
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_raw,
+        y,
+        test_size=0.2,
+        random_state=42,
+        stratify=y
+    )
+
+    split_summary = pd.DataFrame({
+        "구분": ["학습 데이터", "테스트 데이터"],
+        "행 개수": [len(X_train), len(X_test)],
+        "일반 헌혈자군(0)": [
+            int((y_train == 0).sum()), int((y_test == 0).sum())
+        ],
+        "간 질환 관련 대상자군(1)": [
+            int((y_train == 1).sum()), int((y_test == 1).sum())
+        ],
+        "간 질환 관련 대상자군 비율(%)": [
+            round(float((y_train == 1).mean() * 100), 2),
+            round(float((y_test == 1).mean() * 100), 2)
+        ]
+    })
+
+    st.subheader("11-1. 학습 데이터와 테스트 데이터 분리")
+    st.dataframe(split_summary, use_container_width=True, hide_index=True)
+    st.caption(
+        "train_test_split(test_size=0.2, random_state=42, stratify=y)를 적용했습니다. "
+        "두 모델은 동일한 분할 데이터를 사용합니다."
+    )
+
+    # 로지스틱 회귀: 수치형 중앙값 대체 + 표준화, Sex 최빈값 대체 + 원-핫 인코딩
+    def build_logistic_preprocessor():
+        numeric_pipeline = Pipeline(steps=[
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler())
+        ])
+        categorical_pipeline = Pipeline(steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("onehot", OneHotEncoder(handle_unknown="ignore"))
+        ])
+        return ColumnTransformer(
+            transformers=[
+                ("numeric", numeric_pipeline, NUMERIC_INPUTS),
+                ("categorical", categorical_pipeline, CATEGORICAL_INPUTS)
+            ],
+            remainder="drop"
+        )
+
+    # 랜덤 포레스트: 트리 모델이므로 수치형 표준화는 하지 않고 결측치 대체 및 인코딩 적용
+    def build_forest_preprocessor():
+        numeric_pipeline = Pipeline(steps=[
+            ("imputer", SimpleImputer(strategy="median"))
+        ])
+        categorical_pipeline = Pipeline(steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("onehot", OneHotEncoder(handle_unknown="ignore"))
+        ])
+        return ColumnTransformer(
+            transformers=[
+                ("numeric", numeric_pipeline, NUMERIC_INPUTS),
+                ("categorical", categorical_pipeline, CATEGORICAL_INPUTS)
+            ],
+            remainder="drop"
+        )
+
+    logistic_pipeline = Pipeline(steps=[
+        ("preprocessor", build_logistic_preprocessor()),
+        ("classifier", LogisticRegression(
+            max_iter=2000,
+            class_weight="balanced",
+            random_state=42
+        ))
+    ])
+
+    forest_pipeline = Pipeline(steps=[
+        ("preprocessor", build_forest_preprocessor()),
+        ("classifier", RandomForestClassifier(
+            n_estimators=200,
+            max_depth=5,
+            class_weight="balanced",
+            random_state=42,
+            n_jobs=-1
+        ))
+    ])
+
+    with st.spinner("로지스틱 회귀와 랜덤 포레스트 모델을 학습하고 있습니다..."):
+        logistic_pipeline.fit(X_train, y_train)
+        forest_pipeline.fit(X_train, y_train)
+
+    st.success("두 모델의 학습이 완료되었습니다.")
+    st.write(
+        "**로지스틱 회귀 설정:** max_iter=2000, class_weight='balanced', "
+        "수치형 변수 표준화 적용"
+    )
+    st.write(
+        "**랜덤 포레스트 설정:** n_estimators=200, max_depth=5, "
+        "class_weight='balanced', 수치형 변수 표준화 미적용"
+    )
+    st.caption(
+        "두 모델 모두 결측치 대체와 Sex 원-핫 인코딩을 Pipeline 내부에서 수행합니다. "
+        "따라서 학습 데이터에 대해서만 fit되고 테스트 데이터에는 transform만 적용됩니다."
+    )
+
+    # -----------------------------------------------------
+    # 14. 3단계 신규 기능: 모델 성능 평가
+    # -----------------------------------------------------
+    st.header("12. 모델 성능 평가")
+
+    model_pipelines = {
+        "로지스틱 회귀": logistic_pipeline,
+        "랜덤 포레스트": forest_pipeline
+    }
+    evaluation_results = {}
+    metric_rows = []
+    confusion_matrices = {}
+
+    for model_name, model_pipeline in model_pipelines.items():
+        predictions = model_pipeline.predict(X_test)
+        probabilities = model_pipeline.predict_proba(X_test)[:, 1]
+
+        accuracy = accuracy_score(y_test, predictions)
+
+        # 간 질환 관련 대상자군(Target=1)의 지표
+        positive_precision, positive_recall, positive_f1, _ = (
+            precision_recall_fscore_support(
+                y_test, predictions,
+                labels=[1],
+                average=None,
+                zero_division=0
+            )
+        )
+
+        # 전체 클래스 기준 macro / weighted 평균
+        macro_values = precision_recall_fscore_support(
+            y_test, predictions, average="macro", zero_division=0
+        )
+        weighted_values = precision_recall_fscore_support(
+            y_test, predictions, average="weighted", zero_division=0
+        )
+
+        auc_value = (
+            roc_auc_score(y_test, probabilities)
+            if y_test.nunique() == 2 else float("nan")
+        )
+
+        result = {
+            "예측값": predictions,
+            "확률": probabilities,
+            "정확도": float(accuracy),
+            "정밀도": float(positive_precision[0]),
+            "재현율": float(positive_recall[0]),
+            "F1-score": float(positive_f1[0]),
+            "ROC-AUC": float(auc_value),
+            "Macro 정밀도": float(macro_values[0]),
+            "Macro 재현율": float(macro_values[1]),
+            "Macro F1-score": float(macro_values[2]),
+            "Weighted 정밀도": float(weighted_values[0]),
+            "Weighted 재현율": float(weighted_values[1]),
+            "Weighted F1-score": float(weighted_values[2])
+        }
+        evaluation_results[model_name] = result
+        confusion_matrices[model_name] = confusion_matrix(
+            y_test, predictions, labels=[0, 1]
+        )
+
+        metric_rows.append({
+            "모델": model_name,
+            "정확도": result["정확도"],
+            "정밀도(Target=1)": result["정밀도"],
+            "재현율(Target=1)": result["재현율"],
+            "F1-score(Target=1)": result["F1-score"],
+            "ROC-AUC": result["ROC-AUC"],
+            "Macro F1-score": result["Macro F1-score"],
+            "Weighted F1-score": result["Weighted F1-score"]
+        })
+
+    metrics_df = pd.DataFrame(metric_rows)
+
+    st.subheader("12-1. 간 질환 관련 대상자군(Target=1) 성능")
+    st.write(
+        "정밀도는 간 질환 관련 대상자라고 예측한 사례 중 실제 Target=1의 비율이고, "
+        "재현율은 실제 Target=1 중 모델이 찾아낸 비율입니다. F1-score는 두 지표의 조화평균입니다."
+    )
+    positive_metrics_df = metrics_df[
+        ["모델", "정밀도(Target=1)", "재현율(Target=1)", "F1-score(Target=1)"]
+    ].copy()
+    st.dataframe(
+        positive_metrics_df.style.format({
+            "정밀도(Target=1)": "{:.3f}",
+            "재현율(Target=1)": "{:.3f}",
+            "F1-score(Target=1)": "{:.3f}"
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.subheader("12-2. 전체 클래스 평균 성능")
+    average_rows = []
+    for model_name, result in evaluation_results.items():
+        average_rows.append({
+            "모델": model_name,
+            "Macro 정밀도": result["Macro 정밀도"],
+            "Macro 재현율": result["Macro 재현율"],
+            "Macro F1-score": result["Macro F1-score"],
+            "Weighted 정밀도": result["Weighted 정밀도"],
+            "Weighted 재현율": result["Weighted 재현율"],
+            "Weighted F1-score": result["Weighted F1-score"]
+        })
+    st.dataframe(
+        pd.DataFrame(average_rows).style.format({
+            column: "{:.3f}" for column in [
+                "Macro 정밀도", "Macro 재현율", "Macro F1-score",
+                "Weighted 정밀도", "Weighted 재현율", "Weighted F1-score"
+            ]
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+    st.caption(
+        "Macro 평균은 두 클래스를 동일한 비중으로 평가하고, Weighted 평균은 각 클래스의 "
+        "표본 수를 반영합니다. ROC-AUC는 Target=1의 predict_proba 확률을 이용해 계산합니다."
+    )
+
+    # -----------------------------------------------------
+    # 15. 혼동행렬 분석
+    # -----------------------------------------------------
+    st.header("13. 혼동행렬 분석")
+    st.write(
+        "혼동행렬은 실제 정답과 모델 예측을 교차해 보여줍니다. "
+        "행은 실제 분류, 열은 모델 예측이며 순서는 0(일반 헌혈자군), 1(간 질환 관련 대상자군)입니다."
+    )
+
+    for model_name, matrix in confusion_matrices.items():
+        st.subheader(f"{model_name} 혼동행렬")
+        matrix_display = pd.DataFrame(
+            matrix,
+            index=["실제 일반 헌혈자군(0)", "실제 간 질환 관련 대상자군(1)"],
+            columns=["예측 일반 헌혈자군(0)", "예측 간 질환 관련 대상자군(1)"]
+        )
+        fig_cm = px.imshow(
+            matrix_display,
+            text_auto=True,
+            color_continuous_scale="Blues",
+            aspect="auto",
+            title=f"{model_name} 혼동행렬",
+            labels={"x": "모델 예측", "y": "실제 정답", "color": "건수"}
+        )
+        st.plotly_chart(fig_cm, use_container_width=True)
+
+        tn, fp, fn, tp = matrix.ravel()
+        cm_details = pd.DataFrame({
+            "구분": ["True Negative (TN)", "False Positive (FP)", "False Negative (FN)", "True Positive (TP)"],
+            "의미": [
+                "일반 헌혈자를 일반 헌혈자로 올바르게 분류",
+                "일반 헌혈자를 간 질환 관련 대상으로 잘못 분류",
+                "간 질환 관련 대상자를 일반 헌혈자로 놓친 경우",
+                "간 질환 관련 대상자를 간 질환 관련 대상으로 올바르게 분류"
+            ],
+            "건수": [int(tn), int(fp), int(fn), int(tp)]
+        })
+        st.dataframe(cm_details, use_container_width=True, hide_index=True)
+
+    st.warning(
+        "False Negative(FN)는 실제 간 질환 관련 대상자를 일반 헌혈자군으로 분류한 경우입니다. "
+        "이 프로젝트에서는 찾아야 할 대상을 놓치는 결과이므로 특히 주의해야 합니다. "
+        "다만 이 모델은 교육용 분류 실험이며 실제 진단 결과가 아닙니다."
+    )
+
+    # -----------------------------------------------------
+    # 16. 모델별 성능 비교
+    # -----------------------------------------------------
+    st.header("14. 모델별 성능 비교")
+    comparison_display = metrics_df[
+        ["모델", "정확도", "정밀도(Target=1)", "재현율(Target=1)", "F1-score(Target=1)", "ROC-AUC"]
+    ].copy()
+    st.dataframe(
+        comparison_display.style.format({
+            column: "{:.3f}" for column in comparison_display.columns if column != "모델"
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    comparison_long = comparison_display.melt(
+        id_vars="모델",
+        var_name="평가 지표",
+        value_name="점수"
+    )
+    fig_comparison = px.bar(
+        comparison_long,
+        x="평가 지표",
+        y="점수",
+        color="모델",
+        barmode="group",
+        text="점수",
+        title="로지스틱 회귀와 랜덤 포레스트 성능 비교",
+        labels={"평가 지표": "평가 지표", "점수": "점수", "모델": "모델"}
+    )
+    fig_comparison.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+    fig_comparison.update_layout(yaxis=dict(range=[0, 1.08]))
+    st.plotly_chart(fig_comparison, use_container_width=True)
+
+    st.markdown(
+        "- **정확도:** 전체 테스트 데이터 중 맞게 분류한 비율\n"
+        "- **정밀도(Target=1):** 간 질환 관련 대상자라고 예측한 사례 중 실제 대상자의 비율\n"
+        "- **재현율(Target=1):** 실제 간 질환 관련 대상자 중 모델이 찾아낸 비율\n"
+        "- **F1-score(Target=1):** 정밀도와 재현율을 함께 고려한 조화평균\n"
+        "- **ROC-AUC:** 임계값을 바꾸어가며 두 클래스를 구분하는 능력을 종합적으로 나타내는 지표"
+    )
+
+    # 실제 계산 결과에 근거한 간단한 비교 설명
+    recall_values = {
+        name: result["재현율"] for name, result in evaluation_results.items()
+    }
+    f1_values = {
+        name: result["F1-score"] for name, result in evaluation_results.items()
+    }
+    best_recall_model = max(recall_values, key=recall_values.get)
+    best_f1_model = max(f1_values, key=f1_values.get)
+
+    st.subheader("성능 결과 해석")
+    st.write(
+        f"간 질환 관련 대상자군 재현율은 **{best_recall_model}** 모델이 "
+        f"{recall_values[best_recall_model]:.3f}으로 두 모델 중 높았습니다. "
+        "재현율이 높을수록 실제 Target=1 사례를 덜 놓치는 경향이 있습니다."
+    )
+    st.write(
+        f"Target=1의 F1-score는 **{best_f1_model}** 모델이 "
+        f"{f1_values[best_f1_model]:.3f}으로 두 모델 중 높았습니다. "
+        "다만 최종 모델 선택은 재현율, 정밀도, F1-score, ROC-AUC와 "
+        "혼동행렬을 함께 검토해야 하며 정확도 하나만으로 결정하지 않는 것이 좋습니다."
+    )
+    st.info(
+        "로지스틱 회귀는 비교적 단순하고 계수 기반 해석이 가능한 선형 분류 모델이며, "
+        "랜덤 포레스트는 여러 결정 트리로 비선형 관계를 학습할 수 있습니다. "
+        "현재 결과는 이 데이터와 한 번의 분할에 대한 실험이므로 다른 데이터에서도 "
+        "같은 성능이 나온다고 보장할 수 없습니다."
+    )
+
+    # -----------------------------------------------------
+    # 17. 학습 데이터 내 5-Fold 교차 검증
+    # -----------------------------------------------------
+    st.subheader("14-1. 학습 데이터 5-Fold 교차 검증")
+    minority_train_count = int(y_train.value_counts().min())
+    n_splits = min(5, minority_train_count)
+
+    if n_splits < 2:
+        st.warning(
+            "학습 데이터의 소수 클래스 표본이 2건 미만이어서 교차 검증을 수행할 수 없습니다. "
+            "독립적인 테스트 데이터는 그대로 최종 평가에 사용했습니다."
+        )
+    else:
+        if n_splits < 5:
+            st.warning(
+                f"학습 데이터의 소수 클래스가 {minority_train_count}건이어서 "
+                f"5-Fold 대신 가능한 {n_splits}-Fold 교차 검증을 수행합니다."
+            )
+        cv = StratifiedKFold(
+            n_splits=n_splits,
+            shuffle=True,
+            random_state=42
+        )
+        try:
+            cv_rows = []
+            for model_name, model_pipeline in model_pipelines.items():
+                fold_scores = cross_val_score(
+                    model_pipeline,
+                    X_train,
+                    y_train,
+                    cv=cv,
+                    scoring="f1",
+                    n_jobs=None,
+                    error_score="raise"
+                )
+                for fold_index, fold_score in enumerate(fold_scores, start=1):
+                    cv_rows.append({
+                        "모델": model_name,
+                        "Fold": f"Fold {fold_index}",
+                        "F1-score": float(fold_score)
+                    })
+                cv_rows.append({
+                    "모델": model_name,
+                    "Fold": "평균",
+                    "F1-score": float(fold_scores.mean())
+                })
+
+            cv_df = pd.DataFrame(cv_rows)
+            st.dataframe(
+                cv_df.style.format({"F1-score": "{:.3f}"}),
+                use_container_width=True,
+                hide_index=True
+            )
+            fig_cv = px.bar(
+                cv_df[cv_df["Fold"] != "평균"],
+                x="Fold",
+                y="F1-score",
+                color="모델",
+                barmode="group",
+                title=f"학습 데이터 내 {n_splits}-Fold 교차 검증 F1-score",
+                labels={"Fold": "교차 검증 구간", "F1-score": "F1-score"}
+            )
+            st.plotly_chart(fig_cv, use_container_width=True)
+            st.caption(
+                "교차 검증은 학습 데이터 안에서만 수행했습니다. 테스트 데이터는 "
+                "교차 검증과 하이퍼파라미터 선택에 사용하지 않았습니다."
+            )
+        except Exception as cv_error:
+            st.warning(
+                "교차 검증 중 문제가 발생해 해당 결과를 표시하지 못했습니다. "
+                f"테스트 데이터의 최종 평가는 별도로 유지됩니다. 원인: {cv_error}"
+            )
+
+    # -----------------------------------------------------
+    # 18. 랜덤 포레스트 변수 중요도
+    # -----------------------------------------------------
+    st.header("15. 주요 변수 중요도")
+    forest_preprocessor = forest_pipeline.named_steps["preprocessor"]
+    forest_classifier = forest_pipeline.named_steps["classifier"]
+    encoded_feature_names = forest_preprocessor.get_feature_names_out()
+    importance_values = forest_classifier.feature_importances_
+
+    importance_df = pd.DataFrame({
+        "변수": encoded_feature_names,
+        "중요도": importance_values
+    }).sort_values("중요도", ascending=False)
+
+    # 화면에서는 전처리기 내부 접두어를 제거해 변수명을 간결하게 표시합니다.
+    importance_df["변수"] = (
+        importance_df["변수"]
+        .str.replace("numeric__", "", regex=False)
+        .str.replace("categorical__", "", regex=False)
+        .str.replace("Sex_", "Sex = ", regex=False)
+    )
+    st.dataframe(
+        importance_df.assign(중요도=importance_df["중요도"].round(4)),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    fig_importance = px.bar(
+        importance_df.sort_values("중요도", ascending=True),
+        x="중요도",
+        y="변수",
+        orientation="h",
+        title="랜덤 포레스트 변수 중요도",
+        labels={"중요도": "상대적 중요도", "변수": "입력 변수"}
+    )
+    st.plotly_chart(fig_importance, use_container_width=True)
+    st.caption(
+        "변수 중요도는 이 랜덤 포레스트 모델의 분류 과정에서 상대적으로 활용된 정도입니다. "
+        "중요도가 높다고 해당 혈액 검사 항목이 질환의 직접적인 원인이라는 뜻은 아닙니다."
+    )
+
+    # -----------------------------------------------------
+    # 19. 의료적 한계 안내
+    # -----------------------------------------------------
+    st.warning(
+        "의료적 한계: HepaCheck은 교육 및 데이터 분석 목적의 머신러닝 분류 실험입니다. "
+        "실제 의료기관의 진단을 대체할 수 없으며, 모델의 결과만으로 간 질환 여부를 "
+        "확정할 수 없습니다. 또한 간염·섬유화·간경변을 하나의 Target=1 그룹으로 "
+        "통합했으므로 세 질환을 서로 구분하는 기능은 없습니다."
+    )
+
+except Exception as error:
+    st.error(f"머신러닝 모델 학습 및 평가 중 문제가 발생했습니다: {error}")
+    st.info(
+        "CSV의 실제 Category 분포와 입력 변수 자료형을 확인해 주세요. "
+        "원본 데이터 파일은 수정되지 않았습니다."
+    )
