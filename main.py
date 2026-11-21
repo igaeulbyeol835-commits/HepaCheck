@@ -391,7 +391,7 @@ elif columns_with_missing > 0:
 st.header("9. 프로젝트 목적")
 st.write(
     "이번 프로젝트는 혈액 검사 수치와 대상자의 기본 정보를 이용하여 "
-    "일반 헌혈자군과 그 외 대상자군을 구분하는 분류 모델을 개발하는 것을 "
+    "일반 헌혈자군과 간 질환 관련 대상자군을 구분하는 분류 모델을 개발하는 것을 "
     "목표로 합니다. 데이터 탐색과 전처리를 바탕으로 이번 단계에서는 "
     "로지스틱 회귀와 랜덤 포레스트 분류 모델을 학습하고 성능을 비교합니다."
 )
@@ -636,7 +636,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import (
     train_test_split,
     StratifiedKFold,
-    cross_val_score
+    cross_validate
 )
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -999,9 +999,18 @@ try:
     n_splits = min(5, minority_train_count)
 
     if n_splits < 2:
+        cv_summary = {}
+        cv_completed = False
         st.warning(
             "학습 데이터의 소수 클래스 표본이 2건 미만이어서 교차 검증을 수행할 수 없습니다. "
             "독립적인 테스트 데이터는 그대로 최종 평가에 사용했습니다."
+        )
+        st.header("16. 최종 분류 모델 선정")
+        selected_model_name = "로지스틱 회귀"
+        selected_pipeline = logistic_pipeline
+        st.warning(
+            "교차 검증을 수행할 수 없어 최종 우수 모델을 확정하지 못했습니다. "
+            "비교 기준 모델인 로지스틱 회귀를 임시 예측 모델로 사용합니다."
         )
     else:
         if n_splits < 5:
@@ -1014,55 +1023,133 @@ try:
             shuffle=True,
             random_state=42
         )
+        cv_summary = {}
+        cv_completed = False
         try:
             cv_rows = []
+            scoring_metrics = {
+                "recall": "recall",
+                "f1": "f1",
+                "roc_auc": "roc_auc"
+            }
+
             for model_name, model_pipeline in model_pipelines.items():
-                fold_scores = cross_val_score(
+                cv_result = cross_validate(
                     model_pipeline,
                     X_train,
                     y_train,
                     cv=cv,
-                    scoring="f1",
+                    scoring=scoring_metrics,
                     n_jobs=None,
-                    error_score="raise"
+                    error_score="raise",
+                    return_train_score=False
                 )
-                for fold_index, fold_score in enumerate(fold_scores, start=1):
+                cv_summary[model_name] = {
+                    "재현율 평균": float(pd.Series(cv_result["test_recall"]).mean()),
+                    "F1-score 평균": float(pd.Series(cv_result["test_f1"]).mean()),
+                    "ROC-AUC 평균": float(pd.Series(cv_result["test_roc_auc"]).mean())
+                }
+                for fold_index in range(n_splits):
                     cv_rows.append({
                         "모델": model_name,
-                        "Fold": f"Fold {fold_index}",
-                        "F1-score": float(fold_score)
+                        "Fold": f"Fold {fold_index + 1}",
+                        "재현율": float(cv_result["test_recall"][fold_index]),
+                        "F1-score": float(cv_result["test_f1"][fold_index]),
+                        "ROC-AUC": float(cv_result["test_roc_auc"][fold_index])
                     })
                 cv_rows.append({
                     "모델": model_name,
                     "Fold": "평균",
-                    "F1-score": float(fold_scores.mean())
+                    "재현율": cv_summary[model_name]["재현율 평균"],
+                    "F1-score": cv_summary[model_name]["F1-score 평균"],
+                    "ROC-AUC": cv_summary[model_name]["ROC-AUC 평균"]
                 })
 
             cv_df = pd.DataFrame(cv_rows)
             st.dataframe(
-                cv_df.style.format({"F1-score": "{:.3f}"}),
+                cv_df.style.format({
+                    "재현율": "{:.3f}",
+                    "F1-score": "{:.3f}",
+                    "ROC-AUC": "{:.3f}"
+                }),
                 use_container_width=True,
                 hide_index=True
             )
+            cv_chart_data = cv_df[cv_df["Fold"] != "평균"].melt(
+                id_vars=["모델", "Fold"],
+                var_name="평가 지표",
+                value_name="점수"
+            )
             fig_cv = px.bar(
-                cv_df[cv_df["Fold"] != "평균"],
+                cv_chart_data,
                 x="Fold",
-                y="F1-score",
+                y="점수",
                 color="모델",
                 barmode="group",
-                title=f"학습 데이터 내 {n_splits}-Fold 교차 검증 F1-score",
-                labels={"Fold": "교차 검증 구간", "F1-score": "F1-score"}
+                facet_row="평가 지표",
+                title=f"학습 데이터 내 {n_splits}-Fold 교차 검증 결과",
+                labels={"Fold": "교차 검증 구간", "점수": "점수"}
             )
+            fig_cv.update_yaxes(range=[0, 1.05])
             st.plotly_chart(fig_cv, use_container_width=True)
             st.caption(
                 "교차 검증은 학습 데이터 안에서만 수행했습니다. 테스트 데이터는 "
-                "교차 검증과 하이퍼파라미터 선택에 사용하지 않았습니다."
+                "교차 검증과 모델 선정 기준 계산에 사용하지 않았습니다."
             )
+            cv_completed = True
         except Exception as cv_error:
             st.warning(
-                "교차 검증 중 문제가 발생해 해당 결과를 표시하지 못했습니다. "
-                f"테스트 데이터의 최종 평가는 별도로 유지됩니다. 원인: {cv_error}"
+                "교차 검증 중 문제가 발생해 교차 검증 기반 모델 선정을 완료하지 못했습니다. "
+                f"원인: {cv_error}"
             )
+
+        # 테스트 데이터 점수로 모델을 고르지 않고, 학습 데이터 교차 검증 결과로 선정합니다.
+        # 우선순위: Target=1 재현율 -> Target=1 F1-score -> ROC-AUC
+        st.header("16. 최종 분류 모델 선정")
+        if cv_completed and len(cv_summary) == 2:
+            selected_model_name = max(
+                cv_summary,
+                key=lambda name: (
+                    cv_summary[name]["재현율 평균"],
+                    cv_summary[name]["F1-score 평균"],
+                    cv_summary[name]["ROC-AUC 평균"]
+                )
+            )
+            selected_pipeline = model_pipelines[selected_model_name]
+            selected_cv = cv_summary[selected_model_name]
+            st.success(f"교차 검증 기준 최종 선정 모델: {selected_model_name}")
+            st.write(
+                "학습 데이터 교차 검증에서 Target=1 재현율을 가장 우선하여 비교하고, "
+                "재현율이 같을 경우 F1-score, 그다음 ROC-AUC를 기준으로 선정했습니다."
+            )
+            selection_table = pd.DataFrame([
+                {"모델": name, **scores}
+                for name, scores in cv_summary.items()
+            ])
+            st.dataframe(
+                selection_table.style.format({
+                    "재현율 평균": "{:.3f}",
+                    "F1-score 평균": "{:.3f}",
+                    "ROC-AUC 평균": "{:.3f}"
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+            st.caption(
+                "최종 선정은 테스트 데이터의 평가 점수를 기준으로 하지 않았습니다. "
+                "선정된 Pipeline은 학습 데이터 전체로 이미 학습된 객체를 예측에 재사용합니다."
+            )
+        else:
+            # 교차 검증 실패 시 테스트 점수로 임의 선정하지 않습니다.
+            # 재현 가능한 기준 모델을 임시 제공하고 화면에 그 한계를 명시합니다.
+            selected_model_name = "로지스틱 회귀"
+            selected_pipeline = logistic_pipeline
+            st.warning(
+                "교차 검증 결과를 얻지 못해 성능 우수 모델을 확정할 수 없습니다. "
+                "비교 기준 모델인 로지스틱 회귀를 임시 예측 모델로 사용합니다. "
+                "이 경우 최종 모델 선정은 잠정적입니다."
+            )
+
 
     # -----------------------------------------------------
     # 18. 랜덤 포레스트 변수 중요도
@@ -1106,13 +1193,204 @@ try:
     )
 
     # -----------------------------------------------------
-    # 19. 의료적 한계 안내
+    # 19. 실제 혈액 검사 수치 입력 및 분류 예측
     # -----------------------------------------------------
+    st.header("17. 실제 혈액 검사 수치 입력 및 분류 예측")
+    st.write(
+        "혈액 검사 수치를 입력하면 학습된 최종 분류 모델을 활용하여 "
+        "일반 헌혈자군 또는 간 질환 관련 대상자군 중 어느 그룹으로 분류되는지 확인합니다."
+    )
+    st.info(
+        f"현재 예측에 사용하는 모델: **{selected_model_name}**. "
+        "아래 입력값은 기존 학습 데이터에 적용한 전처리 Pipeline을 거쳐 예측됩니다."
+    )
+
+    # 입력 기본값은 학습 데이터의 중앙값/최빈값을 사용합니다.
+    # 의학적 정상 범위를 임의로 설정하지 않으며, 학습 데이터 범위 이탈은 경고만 표시합니다.
+    numeric_defaults = {}
+    training_ranges = {}
+    for feature in NUMERIC_INPUTS:
+        numeric_series = pd.to_numeric(X_train[feature], errors="coerce").dropna()
+        if numeric_series.empty:
+            numeric_defaults[feature] = 0.0
+            training_ranges[feature] = (None, None)
+        else:
+            numeric_defaults[feature] = float(numeric_series.median())
+            training_ranges[feature] = (
+                float(numeric_series.min()),
+                float(numeric_series.max())
+            )
+
+    observed_sex_values = (
+        X_train["Sex"].dropna().astype(str).str.strip().unique().tolist()
+    )
+    observed_sex_values = sorted([value for value in observed_sex_values if value])
+    if not observed_sex_values:
+        observed_sex_values = ["미상"]
+
+    with st.form("hepacheck_prediction_form"):
+        st.subheader("검사 대상자 기본 정보")
+        input_col1, input_col2 = st.columns(2)
+        with input_col1:
+            input_age = st.number_input(
+                "Age - 나이",
+                value=int(round(numeric_defaults["Age"])),
+                step=1,
+                format="%d",
+                help="나이를 숫자로 입력하세요."
+            )
+        with input_col2:
+            input_sex = st.selectbox(
+                "Sex - 성별",
+                options=observed_sex_values,
+                help="학습 데이터에 실제로 존재하는 범주만 선택할 수 있습니다."
+            )
+
+        st.subheader("혈액 검사 수치")
+        st.caption(
+            "각 항목의 의미는 위의 컬럼 의미 안내를 참고하세요. 입력값의 단위는 "
+            "원본 데이터의 측정 기준을 따르며, 이 화면에서 임의의 정상 범위를 적용하지 않습니다."
+        )
+        numeric_input_values = {}
+        feature_help = {
+            "ALB": "알부민", "ALP": "알칼리성 인산분해효소",
+            "ALT": "알라닌 아미노전이효소", "AST": "아스파르테이트 아미노전이효소",
+            "BIL": "빌리루빈", "CHE": "콜린에스테라아제",
+            "CHOL": "콜레스테롤", "CREA": "크레아티닌",
+            "GGT": "감마 글루타밀전이효소", "PROT": "총단백질"
+        }
+        feature_columns = st.columns(3)
+        for index, feature in enumerate([
+            "ALB", "ALP", "ALT", "AST", "BIL", "CHE",
+            "CHOL", "CREA", "GGT", "PROT"
+        ]):
+            with feature_columns[index % 3]:
+                numeric_input_values[feature] = st.number_input(
+                    f"{feature} - {feature_help[feature]}",
+                    value=float(numeric_defaults[feature]),
+                    step=0.1,
+                    format="%.3f",
+                    help=f"{feature_help[feature]} 검사 수치를 입력하세요."
+                )
+
+        submitted = st.form_submit_button(
+            "분류 결과 확인",
+            type="primary",
+            use_container_width=True
+        )
+
+    if submitted:
+        input_record = {
+            "Age": int(input_age),
+            "Sex": input_sex,
+            **numeric_input_values
+        }
+        # 학습 시 사용한 FEATURE_COLUMNS와 동일한 열 이름 및 순서를 보장합니다.
+        prediction_input = pd.DataFrame(
+            [[input_record[column] for column in FEATURE_COLUMNS]],
+            columns=FEATURE_COLUMNS
+        )
+
+        if prediction_input.isna().any().any():
+            st.error("입력값에 누락된 항목이 있습니다. 모든 항목을 확인해 주세요.")
+        else:
+            out_of_training_range = []
+            for feature in NUMERIC_INPUTS:
+                lower, upper = training_ranges[feature]
+                value = float(prediction_input.iloc[0][feature])
+                if lower is not None and upper is not None and (value < lower or value > upper):
+                    out_of_training_range.append(
+                        f"{feature}: 입력값 {value:g} / 학습 데이터 범위 {lower:g}~{upper:g}"
+                    )
+
+            if out_of_training_range:
+                st.warning(
+                    "다음 입력값은 학습 데이터에서 관찰된 범위를 벗어납니다. "
+                    "예측은 진행하지만 결과 해석에 주의하세요.\n\n"
+                    + "\n".join([f"- {item}" for item in out_of_training_range])
+                )
+
+            try:
+                # 모델을 다시 학습하거나 별도 수동 전처리하지 않고 기존 Pipeline을 재사용합니다.
+                predicted_target = int(selected_pipeline.predict(prediction_input)[0])
+                class_probabilities = selected_pipeline.predict_proba(prediction_input)[0]
+                model_classes = selected_pipeline.named_steps["classifier"].classes_
+                probability_by_class = {
+                    int(class_label): float(probability)
+                    for class_label, probability in zip(model_classes, class_probabilities)
+                }
+
+                st.subheader("분류 예측 결과")
+                if predicted_target == 0:
+                    st.success("예측 결과: 일반 헌혈자군")
+                else:
+                    st.warning("예측 결과: 간 질환 관련 대상자군")
+
+                result_col1, result_col2 = st.columns(2)
+                result_col1.metric("예측 Target", str(predicted_target))
+                result_col2.metric("사용 모델", selected_model_name)
+
+                probability_df = pd.DataFrame({
+                    "대상자 그룹": ["일반 헌혈자군 (Target 0)", "간 질환 관련 대상자군 (Target 1)"],
+                    "모델 출력 확률(%)": [
+                        probability_by_class.get(0, 0.0) * 100,
+                        probability_by_class.get(1, 0.0) * 100
+                    ]
+                })
+                st.write("**클래스별 모델 출력 확률**")
+                st.dataframe(
+                    probability_df.style.format({"모델 출력 확률(%)": "{:.2f}%"}),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                fig_probability = px.bar(
+                    probability_df,
+                    x="대상자 그룹",
+                    y="모델 출력 확률(%)",
+                    text="모델 출력 확률(%)",
+                    title="분류 모델의 클래스별 출력 확률",
+                    labels={
+                        "대상자 그룹": "예측 대상 그룹",
+                        "모델 출력 확률(%)": "모델 출력 확률(%)"
+                    }
+                )
+                fig_probability.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+                fig_probability.update_layout(yaxis=dict(range=[0, 110]))
+                st.plotly_chart(fig_probability, use_container_width=True)
+
+                st.write("**입력한 검사 수치 요약**")
+                st.dataframe(prediction_input, use_container_width=True, hide_index=True)
+                st.caption(
+                    "표시된 값은 분류 모델의 출력 확률이며, 실제 질병 발생 확률이나 "
+                    "의학적 진단의 확실성을 의미하지 않습니다."
+                )
+            except Exception as prediction_error:
+                st.error(
+                    "입력값을 이용한 예측 중 문제가 발생했습니다. "
+                    f"입력 항목과 학습된 모델 상태를 확인해 주세요. 오류: {prediction_error}"
+                )
+
+    # -----------------------------------------------------
+    # 20. 프로젝트 한계 및 의료적 주의사항
+    # -----------------------------------------------------
+    st.header("18. 프로젝트의 한계 및 의료적 주의사항")
     st.warning(
-        "의료적 한계: HepaCheck은 교육 및 데이터 분석 목적의 머신러닝 분류 실험입니다. "
-        "실제 의료기관의 진단을 대체할 수 없으며, 모델의 결과만으로 간 질환 여부를 "
-        "확정할 수 없습니다. 또한 간염·섬유화·간경변을 하나의 Target=1 그룹으로 "
-        "통합했으므로 세 질환을 서로 구분하는 기능은 없습니다."
+        "본 서비스는 혈액 검사 데이터를 활용한 교육용 머신러닝 분류 프로젝트입니다. "
+        "예측 결과는 학습 데이터의 패턴을 바탕으로 한 분류 결과이며, 실제 의학적 진단이나 "
+        "질병 여부를 확정하지 않습니다. 실제 건강 상태는 의료 전문가의 상담과 추가 검사를 "
+        "통해 확인해야 합니다.\n\n"
+        "또한 Hepatitis, Fibrosis, Cirrhosis를 하나의 Target=1 그룹으로 통합했으며, "
+        "의심 헌혈자군(0s)은 이진 분류 학습에서 제외했습니다. 학습 데이터의 규모와 구성에 "
+        "따라 예측 성능이 달라질 수 있고, 실제 의료 현장에서 활용하려면 별도의 외부 검증과 "
+        "전문가 검토가 필요합니다."
+    )
+
+    # -----------------------------------------------------
+    # 변수 중요도 및 예측 결과 해석 주의
+    # -----------------------------------------------------
+    st.caption(
+        "모델의 변수 중요도와 예측 결과는 데이터 내 통계적 패턴을 설명하는 참고 정보이며, "
+        "인과관계나 개인의 건강 상태를 확정하지 않습니다."
     )
 
 except Exception as error:
