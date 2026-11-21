@@ -9,6 +9,9 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
+# 배포 파일별 표시 설정: 캐릭터 버전은 True, 캐릭터 없는 버전은 False
+SHOW_MASCOT = False
+
 # ---------------------------------------------------------
 # 1. 페이지 기본 설정
 # ---------------------------------------------------------
@@ -18,9 +21,39 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("HepaCheck")
-st.subheader("나의 혈액 검사 분류 예측 및 결과 근거 분석")
-st.write("혈액 검사 수치를 입력하면 예측 분류군과 데이터 기반 설명을 확인할 수 있는 교육용 서비스")
+# HepaCheck 공통 디자인 시스템: 미니멀 메디컬(아이보리·세이지 그린)
+st.markdown("""
+<style>
+:root { --hc-ink:#31443a; --hc-green:#64836c; --hc-soft:#eef3eb; --hc-line:#e1e8df; }
+.stApp { background: #f7f8f3; }
+[data-testid="stHeader"] { background: rgba(247,248,243,.88); }
+.block-container { max-width: 1180px; padding-top: 1.7rem; padding-bottom: 3rem; }
+h1,h2,h3 { color: #31443a; letter-spacing: -.025em; }
+[data-testid="stTabs"] button[role="tab"] { font-weight: 700; color:#65766a; }
+[data-testid="stTabs"] button[aria-selected="true"] { color:#456c50; border-bottom-color:#78977b; }
+[data-testid="stMetric"] { background:#fff; border:1px solid #e5ebe3; padding: .8rem 1rem; border-radius:16px; }
+[data-testid="stForm"] { border-color:#e1e8df; }
+[data-testid="stExpander"] { border-color:#e1e8df; border-radius:14px; }
+.hc-brand { display:flex; align-items:center; gap:.7rem; margin:0 0 1rem 0; }
+.hc-brand-mark { width:42px;height:42px;border-radius:14px;background:#e5eee2;display:flex;align-items:center;justify-content:center;font-size:1.35rem; }
+.hc-brand-name { font-size:1.2rem;font-weight:850;color:#34483a;line-height:1.2; }
+.hc-brand-sub { font-size:.78rem;color:#829087;margin-top:.15rem; }
+.hc-hero { padding:2rem 2.1rem; border-radius:25px; background:linear-gradient(135deg,#edf3e9 0%,#f7f7ef 68%,#e7efe4 100%); border:1px solid #e1e9dd; color:#31443a; margin:.4rem 0 1rem 0; }
+.hc-hero-grid { display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:1.3rem;align-items:center; }
+.hc-kicker {font-size:.76rem;letter-spacing:.14em;font-weight:800;color:#6e8b70;margin-bottom:.8rem;}
+.hc-hero h1 {font-size:clamp(2rem,4vw,3.1rem);line-height:1.18;color:#31443a;margin:0 0 .8rem 0;font-weight:850;}
+.hc-hero p {font-size:1rem;line-height:1.8;color:#64746a;margin:0;max-width:760px;}
+.hc-steps {display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1.15rem;}
+.hc-step {background:rgba(255,255,255,.78);border:1px solid #dce6d9;padding:.45rem .75rem;border-radius:999px;font-size:.82rem;color:#58705d;}
+.hc-note {border-left:4px solid #78977b;background:#edf4eb;color:#405747;padding:.9rem 1rem;border-radius:0 13px 13px 0;line-height:1.7;margin:.7rem 0 1rem 0;}
+.hc-mascot-wrap {display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.hc-mascot {width:150px;max-width:100%;filter:drop-shadow(0 8px 10px rgba(64,91,66,.12));}
+.hc-mascot-caption {font-size:.78rem;color:#607a63;font-weight:750;margin-top:.25rem;}
+.hc-section {font-size:1.2rem;font-weight:800;color:#3d5744;margin:.45rem 0 .3rem 0;}
+@media(max-width:650px){.hc-hero{padding:1.45rem 1.25rem}.hc-hero-grid{grid-template-columns:1fr}.hc-mascot-wrap{display:none}.hc-hero h1{font-size:2rem}}
+</style>
+<div class="hc-brand"><div class="hc-brand-mark">🌿</div><div><div class="hc-brand-name">HepaCheck</div><div class="hc-brand-sub">혈액 검사 데이터 분석 서비스</div></div></div>
+""", unsafe_allow_html=True)
 
 # main.py와 같은 폴더에 있는 CSV 파일을 불러옵니다.
 DATA_PATH = Path(__file__).parent / "hcvdat0.csv"
@@ -1258,39 +1291,38 @@ with tab_project:
 
 
 with tab_user:
-    # 1장 사용자 화면 전용 스타일: 첫 화면에서 서비스 목적과 입력 순서가 분명히 보이도록 구성합니다.
-    st.markdown(
-        """
-        <style>
-        .hc-hero {
-            padding: 2.1rem 2rem 1.8rem 2rem; border-radius: 22px;
-            background: linear-gradient(120deg, #102b46 0%, #155e75 58%, #0f766e 100%);
-            color: #ffffff; margin: 0.4rem 0 1.1rem 0;
-            box-shadow: 0 12px 30px rgba(15, 45, 65, .16);
-        }
-        .hc-kicker {font-size: .82rem; letter-spacing: .13em; font-weight: 700; opacity: .86; margin-bottom: .7rem;}
-        .hc-hero h1 {font-size: clamp(2rem, 4vw, 3.15rem); line-height: 1.15; color: white; margin: 0 0 .85rem 0; font-weight: 800;}
-        .hc-hero p {font-size: 1.02rem; line-height: 1.75; color: #e6f4f5; margin: 0; max-width: 850px;}
-        .hc-steps {display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.25rem;}
-        .hc-step {background: rgba(255,255,255,.13); border: 1px solid rgba(255,255,255,.23); padding: .48rem .8rem; border-radius: 999px; font-size: .88rem; color: white;}
-        .hc-section {font-size: 1.23rem; font-weight: 750; margin: .35rem 0 .25rem 0;}
-        .hc-note {border-left: 4px solid #0f766e; background: #eff8f7; color: #163b3a; padding: .9rem 1rem; border-radius: 0 12px 12px 0; line-height: 1.65; margin: .7rem 0 1rem 0;}
-        @media (prefers-color-scheme: dark) {.hc-note {background:#153331;color:#e5f5f2;}}
-        </style>
-        <section class="hc-hero">
+    # 1장: 서비스 소개 영역. SHOW_MASCOT 값만 버전별로 달라집니다.
+    mascot_markup = """
+      <div class="hc-mascot-wrap">
+        <svg class="hc-mascot" viewBox="0 0 180 190" role="img" aria-label="초록색 바이오 안내 마스코트">
+          <ellipse cx="90" cy="174" rx="48" ry="8" fill="#dce7d8"/>
+          <path d="M47 86 Q28 88 28 108 Q28 122 44 124 L54 116" fill="#9fbd9b" stroke="#66896c" stroke-width="3"/>
+          <path d="M133 86 Q152 88 152 108 Q152 122 136 124 L126 116" fill="#9fbd9b" stroke="#66896c" stroke-width="3"/>
+          <rect x="55" y="112" width="70" height="53" rx="23" fill="#a9c9a3" stroke="#66896c" stroke-width="3"/>
+          <path d="M72 119 L90 143 L108 119" fill="#f8fbf5" stroke="#d8e5d3" stroke-width="2"/>
+          <path d="M90 18 C54 18 36 44 39 78 C42 111 61 126 90 126 C119 126 138 111 141 78 C144 44 126 18 90 18Z" fill="#b9d5ae" stroke="#66896c" stroke-width="3"/>
+          <path d="M69 20 Q90 -2 111 20" fill="none" stroke="#66896c" stroke-width="5" stroke-linecap="round"/>
+          <ellipse cx="72" cy="72" rx="5" ry="7" fill="#405a45"/><ellipse cx="108" cy="72" rx="5" ry="7" fill="#405a45"/>
+          <path d="M79 88 Q90 99 101 88" fill="none" stroke="#527657" stroke-width="3.5" stroke-linecap="round"/>
+          <circle cx="58" cy="86" r="7" fill="#e6a6a0" opacity=".8"/><circle cx="122" cy="86" r="7" fill="#e6a6a0" opacity=".8"/>
+          <path d="M90 12 Q73 -2 64 10 Q75 20 90 12 Q105 -2 116 10 Q105 20 90 12Z" fill="#789b70"/>
+          <circle cx="90" cy="12" r="4" fill="#d9e8ce"/>
+        </svg>
+        <div class="hc-mascot-caption">헬피 · 분석 안내 도우미</div>
+      </div>
+    """ if SHOW_MASCOT else ""
+    hero_html = f"""
+      <section class="hc-hero"><div class="hc-hero-grid">
+        <div>
           <div class="hc-kicker">HEPACHECK · BLOOD TEST DATA ANALYSIS</div>
           <h1>헌혈 가능 여부를<br>확인하는 데 참고가 되는 분석</h1>
-          <p>나이와 성별, 총콜레스테롤 및 보유한 혈액 검사 수치를 입력하면 기존 데이터의 분류 패턴과 비교해 결과를 안내합니다.
-          내 검사 정보가 어떤 분류군의 데이터와 더 비슷한지 이해하는 데 활용해 보세요.</p>
-          <div class="hc-steps">
-            <span class="hc-step">01 필수 정보 입력</span>
-            <span class="hc-step">02 추가 검사값 선택</span>
-            <span class="hc-step">03 결과와 비교 근거 확인</span>
-          </div>
-        </section>
-        """,
-        unsafe_allow_html=True
-    )
+          <p>나이와 성별, 총콜레스테롤 및 보유한 혈액 검사 수치를 입력하면 기존 데이터의 분류 패턴과 비교해 결과를 안내합니다. 내 검사 정보가 어떤 분류군의 데이터와 더 비슷한지 이해하는 데 활용해 보세요.</p>
+          <div class="hc-steps"><span class="hc-step">01 필수 정보 입력</span><span class="hc-step">02 추가 검사값 선택</span><span class="hc-step">03 결과와 비교 근거 확인</span></div>
+        </div>
+        {mascot_markup}
+      </div></section>
+    """
+    st.markdown(hero_html, unsafe_allow_html=True)
     st.markdown(
         "<div class='hc-note'><b>먼저 확인해 주세요.</b> HepaCheck은 교육 및 데이터 분석을 위한 분류 모델입니다. 실제 헌혈 가능 여부는 이 서비스가 판정할 수 없으며, 헌혈 현장의 문진·검사와 기관 기준에 따라 결정됩니다.</div>",
         unsafe_allow_html=True
@@ -1301,7 +1333,7 @@ with tab_user:
         "모든 검사를 입력할 필요는 없지만, 입력 정보가 제한적이면 분석 근거가 부족해 예측 대신 참고용 데이터 분포만 제공될 수 있습니다."
     )
 
-    st.warning(
+    st.info(
         "**검사 결과를 활용한 참고 분석 안내**\n\n"
         "입력하신 나이, 성별 및 혈액 검사 수치를 바탕으로 기존 데이터에서 관찰된 분류 패턴을 분석합니다.\n\n"
         "모든 혈액 검사 항목을 입력하지 않아도 일부 정보를 활용한 분석을 이용할 수 있습니다. "
