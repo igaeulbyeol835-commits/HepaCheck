@@ -1260,191 +1260,381 @@ with tab_project:
 with tab_user:
     st.title("나의 혈액 검사 분석")
     st.write(
-        "검사 수치를 입력하면 학습된 분류 모델이 두 분류군 중 하나를 예측하고, "
-        "입력값이 학습 데이터의 각 분류군에서 어떤 위치에 있는지와 예측 결과의 참고 근거를 보여줍니다."
-    )
-    st.info(
-        "이 서비스는 교육용 분류 실험입니다. 실제 질병 여부를 진단하거나 건강 상태를 확정하지 않습니다. "
-        "검사 결과에 대한 의학적 판단은 의료 전문가와 상담해야 합니다."
+        "현재 알고 있는 정보의 양에 맞춰 분석 방법을 선택할 수 있습니다. "
+        "나이와 성별만으로 시작하고, 알고 있는 혈액 검사 수치가 있다면 선택적으로 추가하세요."
     )
 
-    if not model_ready:
-        st.error("모델 학습이 완료되지 않아 개인 분류 예측을 사용할 수 없습니다. 2장 수행 과정의 오류 안내를 확인해 주세요.")
-    else:
-        st.subheader("1. 혈액 검사 수치 입력")
-        st.caption("모든 수치는 사용 중인 검사기관의 결과지에 기재된 값을 입력하세요. 의학적 정상 범위를 임의로 적용하지 않습니다.")
+    st.warning(
+        "**검사 결과를 활용한 참고 분석 안내**\n\n"
+        "입력하신 나이, 성별 및 혈액 검사 수치를 바탕으로 기존 데이터에서 관찰된 분류 패턴을 분석합니다.\n\n"
+        "모든 혈액 검사 항목을 입력하지 않아도 일부 정보를 활용한 분석을 이용할 수 있습니다. "
+        "다만 입력한 정보가 적을수록 분석에 활용할 수 있는 근거가 제한되며, 결과의 정확도가 낮아질 수 있습니다.\n\n"
+        "본 서비스는 교육 및 데이터 분석을 위한 분류 모델이며 의료 진단이나 질병 발생 가능성을 확정하는 도구가 아닙니다. "
+        "건강 상태에 대한 정확한 판단과 추가 검사가 필요한 경우 의료진과 상담하시기 바랍니다."
+    )
 
-        numeric_defaults = {}
-        training_ranges = {}
-        for feature in NUMERIC_INPUTS:
-            series = pd.to_numeric(X_train[feature], errors="coerce").dropna()
-            if series.empty:
-                numeric_defaults[feature] = 0.0
-                training_ranges[feature] = (None, None)
-            else:
-                numeric_defaults[feature] = float(series.median())
-                training_ranges[feature] = (float(series.min()), float(series.max()))
+    st.subheader("1. 기본 정보 입력")
+    st.caption(
+        "나이와 성별은 필수 입력 항목입니다. 혈액 검사 수치는 알고 있는 항목만 선택해 추가할 수 있습니다. "
+        "입력하지 않은 항목을 임의의 값으로 채워 예측하지 않습니다."
+    )
 
-        sex_options = sorted(
-            X_train["Sex"].dropna().astype(str).str.strip().loc[lambda s: s.ne("")].unique().tolist()
+    help_text = {
+        "ALB": "알부민", "ALP": "알칼리성 인산분해효소",
+        "ALT": "알라닌 아미노전이효소", "AST": "아스파르테이트 아미노전이효소",
+        "BIL": "빌리루빈", "CHE": "콜린에스테라아제",
+        "CHOL": "콜레스테롤", "CREA": "크레아티닌",
+        "GGT": "감마 글루타밀전이효소", "PROT": "총단백질"
+    }
+    optional_labs = ["CHOL", "ALT", "AST", "GGT", "ALB", "ALP", "BIL", "CHE", "CREA", "PROT"]
+
+    # 입력 양식: 사용자가 체크한 수치만 실제 모델의 독립 변수에 포함합니다.
+    with st.form("adaptive_personal_analysis_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            age_value = st.number_input("나이(Age)", min_value=1, max_value=120, value=35, step=1)
+        with c2:
+            observed_sex = sorted(
+                modeling_source["Sex"].dropna().astype(str).str.strip().loc[
+                    lambda s: s.ne("")
+                ].unique().tolist()
+            )
+            sex_options = observed_sex if observed_sex else ["m", "f"]
+            sex_value = st.selectbox(
+                "성별(Sex)",
+                options=sex_options,
+                format_func=lambda x: {"m": "남성", "f": "여성"}.get(x.lower(), x)
+            )
+
+        st.markdown("**2. 알고 있는 혈액 검사 수치 선택 입력**")
+        st.caption(
+            "예: 건강검진 결과지에서 콜레스테롤 수치만 알고 있다면 CHOL만 선택하면 됩니다. "
+            "선택한 항목만 별도 분석 모델에 사용됩니다."
         )
-        if not sex_options:
-            sex_options = ["미상"]
-        sex_mode_values = X_train["Sex"].dropna().astype(str).str.strip()
-        sex_reference = sex_mode_values.mode().iloc[0] if not sex_mode_values.empty else sex_options[0]
+        selected_labs = []
+        lab_values = {}
+        lab_cols = st.columns(2)
+        for i, feature in enumerate(optional_labs):
+            with lab_cols[i % 2]:
+                include_feature = st.checkbox(
+                    f"{feature} · {help_text[feature]} 입력",
+                    value=False,
+                    key=f"include_{feature}"
+                )
+                lab_value = st.number_input(
+                    f"{feature} 수치",
+                    min_value=0.0,
+                    value=0.0,
+                    step=0.1,
+                    format="%.3f",
+                    key=f"value_{feature}",
+                    help=f"검사 결과지의 {help_text[feature]} 값을 입력하세요. 체크한 항목만 모델에 사용됩니다."
+                )
+                if include_feature:
+                    selected_labs.append(feature)
+                    lab_values[feature] = lab_value
 
-        help_text = {
-            "ALB": "알부민", "ALP": "알칼리성 인산분해효소", "ALT": "알라닌 아미노전이효소",
-            "AST": "아스파르테이트 아미노전이효소", "BIL": "빌리루빈", "CHE": "콜린에스테라아제",
-            "CHOL": "콜레스테롤", "CREA": "크레아티닌", "GGT": "감마 글루타밀전이효소", "PROT": "총단백질"
-        }
-        input_values = {}
-        with st.form("personal_blood_test_form"):
-            basic1, basic2 = st.columns(2)
-            with basic1:
-                age_value = st.number_input("Age · 나이", min_value=0, value=max(0, int(round(numeric_defaults["Age"]))), step=1)
-            with basic2:
-                sex_value = st.selectbox("Sex · 성별", options=sex_options)
+        submit_analysis = st.form_submit_button(
+            "내 분류 결과와 근거 확인",
+            type="primary",
+            use_container_width=True
+        )
 
-            st.markdown("**혈액 검사 항목**")
-            input_cols = st.columns(3)
-            for i, feature in enumerate(["ALB", "ALP", "ALT", "AST", "BIL", "CHE", "CHOL", "CREA", "GGT", "PROT"]):
-                with input_cols[i % 3]:
-                    input_values[feature] = st.number_input(
-                        f"{feature} · {help_text[feature]}",
-                        value=float(numeric_defaults[feature]),
-                        step=0.1,
-                        format="%.3f",
-                        help=f"{help_text[feature]} 검사 결과지의 수치를 입력하세요."
+    if submit_analysis:
+        selected_features = ["Age", "Sex"] + [
+            feature for feature in optional_labs if feature in selected_labs
+        ]
+        user_row = {"Age": float(age_value), "Sex": sex_value}
+        user_row.update({feature: float(lab_values[feature]) for feature in selected_labs})
+        user_input = pd.DataFrame([user_row], columns=selected_features)
+
+        st.divider()
+        st.subheader("3. 분석에 사용한 정보")
+        st.write(
+            f"입력 정보: 나이, 성별 및 혈액 검사 수치 {len(selected_labs)}개 "
+            f"({', '.join(selected_labs) if selected_labs else '추가 검사 수치 없음'})"
+        )
+        st.dataframe(user_input, use_container_width=True, hide_index=True)
+
+        # 입력 조합과 정확히 같은 변수만으로 모델을 구성합니다.
+        # 일부 변수 입력 시 전체 12개 변수 모델에 결측 대체값을 넣어 사용하는 일을 방지합니다.
+        try:
+            from sklearn.compose import ColumnTransformer
+            from sklearn.impute import SimpleImputer
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.metrics import make_scorer, recall_score, f1_score, roc_auc_score
+            from sklearn.model_selection import StratifiedKFold, cross_validate
+            from sklearn.pipeline import Pipeline
+            from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+            subset_source = modeling_source[selected_features + ["Target"]].copy()
+            for feature in selected_features:
+                if feature != "Sex":
+                    subset_source[feature] = pd.to_numeric(
+                        subset_source[feature], errors="coerce"
                     )
-            run_prediction = st.form_submit_button("내 분류 결과와 근거 확인", type="primary", use_container_width=True)
+            subset_source = subset_source.dropna(subset=["Target"])
+            class_counts = subset_source["Target"].value_counts()
+            min_class_count = int(class_counts.min()) if len(class_counts) == 2 else 0
 
-        if run_prediction:
-            row = {"Age": int(age_value), "Sex": sex_value, **input_values}
-            user_input = pd.DataFrame([[row[c] for c in FEATURE_COLUMNS]], columns=FEATURE_COLUMNS)
-            try:
-                predicted = int(selected_pipeline.predict(user_input)[0])
-                probs = selected_pipeline.predict_proba(user_input)[0]
-                classes = selected_pipeline.named_steps["classifier"].classes_
-                prob_map = {int(c): float(p) for c, p in zip(classes, probs)}
-                p0, p1 = prob_map.get(0, 0.0), prob_map.get(1, 0.0)
-
-                st.divider()
-                st.subheader("2. 나의 분류 예측 결과")
-                if predicted == 0:
-                    st.success("예측 분류군: 일반 헌혈자군 (Target 0)")
-                else:
-                    st.warning("예측 분류군: 간 질환 관련 대상자군 (Target 1)")
-                m1, m2, m3 = st.columns(3)
-                m1.metric("예측 Target", str(predicted))
-                m2.metric("일반 헌혈자군 출력값", f"{p0 * 100:.1f}%")
-                m3.metric("간 질환 관련 대상자군 출력값", f"{p1 * 100:.1f}%")
-                prob_df = pd.DataFrame({
-                    "분류군": ["일반 헌혈자군", "간 질환 관련 대상자군"],
-                    "모델 출력값(%)": [p0 * 100, p1 * 100]
-                })
-                fig_prob = px.bar(prob_df, x="분류군", y="모델 출력값(%)", text="모델 출력값(%)", range_y=[0, 110], title="두 분류군에 대한 모델 출력값")
-                fig_prob.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-                st.plotly_chart(fig_prob, use_container_width=True)
-
-                st.divider()
-                st.subheader("3. 예측 결과를 이해하기 위한 데이터 근거")
-                st.write(
-                    "아래 표는 입력한 수치가 학습 데이터의 일반 헌혈자군과 간 질환 관련 대상자군에서 "
-                    "어떤 분포 위치에 있는지 비교합니다. 각 집단의 중앙값과 백분위 위치는 데이터의 통계적 비교이며, "
-                    "그 자체가 의학적 정상·비정상 판정은 아닙니다."
+            if len(class_counts) != 2 or set(class_counts.index) != {0, 1}:
+                st.error("선택한 입력 조합으로 두 분류군을 모두 학습할 수 있는 데이터가 없습니다.")
+            elif min_class_count < 10:
+                st.warning(
+                    f"선택한 입력 조합의 최소 분류군 표본 수가 {min_class_count}건입니다. "
+                    "안정적인 교차 검증을 위해 각 분류군에 최소 10건이 필요하도록 설정했으며, "
+                    "현재는 예측을 제공하지 않습니다."
                 )
-                group0 = modeling_source.loc[modeling_source["Target"] == 0]
-                group1 = modeling_source.loc[modeling_source["Target"] == 1]
-                comparison_rows = []
-                for feature in NUMERIC_INPUTS:
-                    vals0 = pd.to_numeric(group0[feature], errors="coerce").dropna()
-                    vals1 = pd.to_numeric(group1[feature], errors="coerce").dropna()
-                    value = float(user_input.iloc[0][feature])
-                    comparison_rows.append({
-                        "검사 항목": feature,
-                        "입력값": value,
-                        "일반 헌혈자군 중앙값": float(vals0.median()) if not vals0.empty else float("nan"),
-                        "간 질환 관련 대상자군 중앙값": float(vals1.median()) if not vals1.empty else float("nan"),
-                        "일반 헌혈자군 내 백분위(%)": float((vals0 <= value).mean() * 100) if not vals0.empty else float("nan"),
-                        "간 질환 관련 대상자군 내 백분위(%)": float((vals1 <= value).mean() * 100) if not vals1.empty else float("nan")
-                    })
-                comparison_df = pd.DataFrame(comparison_rows)
+            else:
+                numeric_selected = [f for f in selected_features if f != "Sex"]
+                categorical_selected = ["Sex"] if "Sex" in selected_features else []
+
+                numeric_pipeline = Pipeline(steps=[
+                    ("imputer", SimpleImputer(strategy="median")),
+                    ("scaler", StandardScaler())
+                ])
+                transformers = []
+                if numeric_selected:
+                    transformers.append(("numeric", numeric_pipeline, numeric_selected))
+                if categorical_selected:
+                    categorical_pipeline = Pipeline(steps=[
+                        ("imputer", SimpleImputer(strategy="most_frequent")),
+                        ("onehot", OneHotEncoder(handle_unknown="ignore"))
+                    ])
+                    transformers.append(("categorical", categorical_pipeline, categorical_selected))
+
+                adaptive_pipeline = Pipeline(steps=[
+                    ("preprocessor", ColumnTransformer(
+                        transformers=transformers, remainder="drop"
+                    )),
+                    ("classifier", LogisticRegression(
+                        max_iter=2000, class_weight="balanced", random_state=42
+                    ))
+                ])
+
+                X_subset = subset_source[selected_features].copy()
+                y_subset = subset_source["Target"].astype(int).copy()
+                n_splits = min(5, min_class_count)
+                cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+                with st.spinner("입력한 항목 조합에 맞는 분류 모델을 검증하고 있습니다..."):
+                    cv_result = cross_validate(
+                        adaptive_pipeline,
+                        X_subset,
+                        y_subset,
+                        cv=cv,
+                        scoring={
+                            "recall": "recall",
+                            "f1": "f1",
+                            "roc_auc": "roc_auc"
+                        },
+                        error_score="raise"
+                    )
+
+                st.success(
+                    f"입력한 {len(selected_features)}개 항목 조합의 {n_splits}-Fold 교차 검증을 완료했습니다."
+                )
+                cv_metrics = pd.DataFrame([{
+                    "교차 검증 재현율 평균": float(cv_result["test_recall"].mean()),
+                    "교차 검증 F1-score 평균": float(cv_result["test_f1"].mean()),
+                    "교차 검증 ROC-AUC 평균": float(cv_result["test_roc_auc"].mean())
+                }])
                 st.dataframe(
-                    comparison_df.style.format({c: "{:.2f}" for c in comparison_df.columns if c != "검사 항목"}),
+                    cv_metrics.style.format("{:.3f}"),
                     use_container_width=True,
                     hide_index=True
                 )
-
-                selected_feature = st.selectbox(
-                    "분포를 그래프로 자세히 볼 검사 항목",
-                    options=NUMERIC_INPUTS,
-                    format_func=lambda c: f"{c} · {COLUMN_DESCRIPTIONS[c]}"
-                )
-                plot_df = modeling_source[[selected_feature, "Target"]].copy()
-                plot_df[selected_feature] = pd.to_numeric(plot_df[selected_feature], errors="coerce")
-                plot_df["분류군"] = plot_df["Target"].map({0: "일반 헌혈자군", 1: "간 질환 관련 대상자군"})
-                plot_df = plot_df.dropna(subset=[selected_feature])
-                fig_dist = px.histogram(
-                    plot_df, x=selected_feature, color="분류군", histnorm="probability density",
-                    marginal="box", barmode="overlay", opacity=0.55,
-                    title=f"{selected_feature} 집단별 분포와 내 입력값"
-                )
-                fig_dist.add_vline(x=float(user_input.iloc[0][selected_feature]), line_dash="dash", line_width=3, annotation_text="내 입력값")
-                st.plotly_chart(fig_dist, use_container_width=True)
-
-                st.divider()
-                st.subheader("4. 내 입력값을 바꿔 보는 모델 민감도")
-                st.write(
-                    "각 입력 항목을 하나씩 학습 데이터의 대표값(수치형은 중앙값, 성별은 최빈값)으로 바꿨을 때 "
-                    "Target 1 모델 출력값이 얼마나 달라지는지 비교합니다. 이는 개인별 인과관계나 확정적인 기여도를 뜻하지 않고, "
-                    "현재 모델의 입력 민감도를 살펴보는 참고 분석입니다."
-                )
-                baseline_p1 = p1
-                sensitivity_rows = []
-                for feature in FEATURE_COLUMNS:
-                    altered = user_input.copy()
-                    if feature == "Sex":
-                        altered.loc[altered.index[0], feature] = sex_reference
-                        reference_label = f"학습 데이터 최빈값 ({sex_reference})"
-                    else:
-                        reference_value = numeric_defaults[feature]
-                        altered.loc[altered.index[0], feature] = reference_value
-                        reference_label = f"학습 데이터 중앙값 ({reference_value:.3f})"
-                    altered_p1 = float(selected_pipeline.predict_proba(altered)[0][list(classes).index(1)])
-                    sensitivity_rows.append({
-                        "항목": feature,
-                        "현재 입력값": str(user_input.iloc[0][feature]),
-                        "비교 기준값": reference_label,
-                        "기준값으로 바꿨을 때 Target 1 출력값 변화(%p)": (altered_p1 - baseline_p1) * 100
-                    })
-                sensitivity_df = pd.DataFrame(sensitivity_rows)
-                sensitivity_df["절대 변화량"] = sensitivity_df["기준값으로 바꿨을 때 Target 1 출력값 변화(%p)"].abs()
-                sensitivity_df = sensitivity_df.sort_values("절대 변화량", ascending=False).drop(columns="절대 변화량")
-                st.dataframe(
-                    sensitivity_df.style.format({"기준값으로 바꿨을 때 Target 1 출력값 변화(%p)": "{:+.2f}"}),
-                    use_container_width=True,
-                    hide_index=True
-                )
-                st.caption("변화량이 크다는 것은 해당 입력을 기준값으로 바꿨을 때 모델 출력이 민감하게 변했다는 뜻입니다. 위험도나 질병 원인 순위가 아닙니다.")
-
-                st.divider()
-                st.subheader("5. 입력값 및 해석 시 주의사항")
-                st.dataframe(user_input, use_container_width=True, hide_index=True)
-                outside = []
-                for feature in NUMERIC_INPUTS:
-                    low, high = training_ranges[feature]
-                    val = float(user_input.iloc[0][feature])
-                    if low is not None and high is not None and (val < low or val > high):
-                        outside.append(f"{feature}: {val:g} (학습 데이터 범위 {low:g}~{high:g})")
-                if outside:
-                    st.warning("다음 입력값은 학습 데이터 관측 범위를 벗어납니다. 예측은 수행했지만 해석에 특히 주의하세요.\n\n" + "\n".join(f"- {x}" for x in outside))
                 st.caption(
-                    "모델 출력값은 학습 데이터의 패턴을 바탕으로 한 값이며 실제 질병 확률이 아닙니다. "
-                    "데이터 분포 비교와 민감도 분석도 진단 근거가 아니라 모델을 이해하기 위한 교육용 정보입니다."
+                    "위 점수는 현재 CSV 안에서 수행한 교차 검증 결과이며 외부 병원 데이터로 "
+                    "검증한 성능이 아닙니다. 입력 조합에 따라 결과가 달라질 수 있습니다."
                 )
-            except Exception as prediction_error:
-                st.error(f"예측 또는 근거 분석 중 오류가 발생했습니다: {prediction_error}")
+
+                mean_cv_auc = float(cv_result["test_roc_auc"].mean())
+                if mean_cv_auc <= 0.60:
+                    st.warning(
+                        f"이 입력 조합의 교차 검증 ROC-AUC 평균은 {mean_cv_auc:.3f}으로, "
+                        "분류 성능이 충분하다고 보기 어려워 개인 분류 예측은 제공하지 않습니다. "
+                        "대신 입력한 나이·성별과 비슷한 데이터 집단의 분포를 참고 정보로 보여드립니다."
+                    )
+                    age_mask = (
+                        pd.to_numeric(modeling_source["Age"], errors="coerce").between(
+                            max(0, float(age_value) - 5), float(age_value) + 5
+                        )
+                    )
+                    sex_mask = (
+                        modeling_source["Sex"].astype("string").str.strip()
+                        == str(sex_value).strip()
+                    )
+                    similar_group = modeling_source.loc[age_mask & sex_mask]
+                    if len(similar_group) >= 10:
+                        similar_counts = similar_group["Target"].value_counts().reindex(
+                            [0, 1], fill_value=0
+                        )
+                        similar_display = pd.DataFrame({
+                            "분류군": ["일반 헌혈자군", "간 질환 관련 대상자군"],
+                            "데이터 개수": [
+                                int(similar_counts.loc[0]), int(similar_counts.loc[1])
+                            ],
+                            "집단 내 비율(%)": [
+                                float(similar_counts.loc[0] / len(similar_group) * 100),
+                                float(similar_counts.loc[1] / len(similar_group) * 100)
+                            ]
+                        })
+                        st.write(
+                            f"입력한 나이 기준 ±5세, 같은 성별인 데이터 {len(similar_group)}건의 분포입니다."
+                        )
+                        st.dataframe(
+                            similar_display.style.format({"집단 내 비율(%)": "{:.1f}"}),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    else:
+                        st.info(
+                            "입력한 나이(±5세)와 성별에 해당하는 데이터가 10건 미만이어서 "
+                            "세부 집단 비율도 표시하지 않습니다."
+                        )
+                else:
+                    adaptive_pipeline.fit(X_subset, y_subset)
+                    predicted = int(adaptive_pipeline.predict(user_input)[0])
+                    probabilities = adaptive_pipeline.predict_proba(user_input)[0]
+                    class_order = adaptive_pipeline.named_steps["classifier"].classes_
+                    probability_map = {
+                        int(label): float(prob)
+                        for label, prob in zip(class_order, probabilities)
+                    }
+                    p0 = probability_map.get(0, 0.0)
+                    p1 = probability_map.get(1, 0.0)
+
+                    st.divider()
+                    st.subheader("4. 나의 분류 예측 결과")
+                    if predicted == 0:
+                        st.success("모델 예측 분류군: 일반 헌혈자군 (Target 0)")
+                    else:
+                        st.warning("모델 예측 분류군: 간 질환 관련 대상자군 (Target 1)")
+                    m1, m2 = st.columns(2)
+                    m1.metric("일반 헌혈자군 모델 출력값", f"{p0 * 100:.1f}%")
+                    m2.metric("간 질환 관련 대상자군 모델 출력값", f"{p1 * 100:.1f}%")
+                    st.caption(
+                        "모델 출력값은 학습 데이터에서 관찰된 패턴에 따른 분류 점수이며, "
+                        "실제 질병 발생 확률이나 개인의 건강 위험도를 뜻하지 않습니다."
+                    )
+
+                    prob_df = pd.DataFrame({
+                        "분류군": ["일반 헌혈자군", "간 질환 관련 대상자군"],
+                        "모델 출력값(%)": [p0 * 100, p1 * 100]
+                    })
+                    fig_prob = px.bar(
+                        prob_df, x="분류군", y="모델 출력값(%)",
+                        text="모델 출력값(%)", range_y=[0, 110],
+                        title="두 분류군에 대한 모델 출력값"
+                    )
+                    fig_prob.update_traces(
+                        texttemplate="%{text:.1f}%", textposition="outside"
+                    )
+                    st.plotly_chart(fig_prob, use_container_width=True)
+
+                    st.divider()
+                    st.subheader("5. 입력값과 기존 데이터 분포 비교")
+                    st.write(
+                        "입력한 수치가 기존 데이터의 두 분류군에서 어떤 위치에 있는지 비교합니다. "
+                        "중앙값과 백분위는 통계적 분포 비교일 뿐, 의학적 정상·비정상 판정이 아닙니다."
+                    )
+                    group0 = modeling_source.loc[modeling_source["Target"] == 0]
+                    group1 = modeling_source.loc[modeling_source["Target"] == 1]
+                    comparison_rows = []
+                    for feature in numeric_selected:
+                        vals0 = pd.to_numeric(group0[feature], errors="coerce").dropna()
+                        vals1 = pd.to_numeric(group1[feature], errors="coerce").dropna()
+                        value = float(user_input.iloc[0][feature])
+                        comparison_rows.append({
+                            "항목": feature,
+                            "입력값": value,
+                            "일반 헌혈자군 중앙값": float(vals0.median()) if not vals0.empty else float("nan"),
+                            "간 질환 관련 대상자군 중앙값": float(vals1.median()) if not vals1.empty else float("nan"),
+                            "일반 헌혈자군 내 백분위(%)": float((vals0 <= value).mean() * 100) if not vals0.empty else float("nan"),
+                            "간 질환 관련 대상자군 내 백분위(%)": float((vals1 <= value).mean() * 100) if not vals1.empty else float("nan")
+                        })
+                    if comparison_rows:
+                        comparison_df = pd.DataFrame(comparison_rows)
+                        st.dataframe(
+                            comparison_df.style.format({
+                                c: "{:.2f}" for c in comparison_df.columns if c != "항목"
+                            }),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    else:
+                        st.info("수치형 혈액 검사 항목을 추가하지 않아 나이·성별 모델 결과만 표시했습니다.")
+
+                    st.divider()
+                    st.subheader("6. 예측 결과에 대한 참고 근거")
+                    st.write(
+                        "아래 민감도 분석은 입력한 각 수치 또는 성별을 데이터의 대표값으로 하나씩 바꾸었을 때 "
+                        "모델 출력이 얼마나 달라지는지 보여줍니다. 인과관계나 질병 원인을 설명하는 것은 아닙니다."
+                    )
+                    sensitivity_rows = []
+                    base_probability = p1
+                    for feature in selected_features:
+                        altered = user_input.copy()
+                        if feature == "Sex":
+                            mode_values = subset_source["Sex"].dropna().astype(str).str.strip()
+                            if mode_values.empty:
+                                continue
+                            reference = mode_values.mode().iloc[0]
+                            altered.loc[0, feature] = reference
+                            reference_text = f"학습 데이터 최빈값 ({reference})"
+                        else:
+                            reference = float(pd.to_numeric(X_subset[feature], errors="coerce").median())
+                            altered.loc[0, feature] = reference
+                            reference_text = f"학습 데이터 중앙값 ({reference:.3f})"
+                        altered_probability = float(
+                            adaptive_pipeline.predict_proba(altered)[0][
+                                list(class_order).index(1)
+                            ]
+                        )
+                        sensitivity_rows.append({
+                            "항목": feature,
+                            "현재 입력값": str(user_input.iloc[0][feature]),
+                            "비교 기준값": reference_text,
+                            "기준값으로 바꿨을 때 Target 1 출력값 변화(%p)": (
+                                altered_probability - base_probability
+                            ) * 100
+                        })
+                    if sensitivity_rows:
+                        sensitivity_df = pd.DataFrame(sensitivity_rows)
+                        sensitivity_df["절대 변화량"] = sensitivity_df[
+                            "기준값으로 바꿨을 때 Target 1 출력값 변화(%p)"
+                        ].abs()
+                        sensitivity_df = sensitivity_df.sort_values(
+                            "절대 변화량", ascending=False
+                        ).drop(columns="절대 변화량")
+                        st.dataframe(
+                            sensitivity_df.style.format({
+                                "기준값으로 바꿨을 때 Target 1 출력값 변화(%p)": "{:+.2f}"
+                            }),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+                    outside = []
+                    for feature in numeric_selected:
+                        observed = pd.to_numeric(X_subset[feature], errors="coerce").dropna()
+                        if not observed.empty:
+                            low, high = float(observed.min()), float(observed.max())
+                            value = float(user_input.iloc[0][feature])
+                            if value < low or value > high:
+                                outside.append(
+                                    f"{feature}: {value:g} (기존 데이터 관측 범위 {low:g}~{high:g})"
+                                )
+                    if outside:
+                        st.warning(
+                            "다음 입력값은 기존 데이터의 관측 범위를 벗어납니다. "
+                            "모델 결과를 특히 신중하게 해석하세요.\n\n" +
+                            "\n".join(f"- {item}" for item in outside)
+                        )
+
+        except Exception as prediction_error:
+            st.error(f"분류 예측 또는 근거 분석 중 오류가 발생했습니다: {prediction_error}")
 
     st.divider()
     st.caption(
