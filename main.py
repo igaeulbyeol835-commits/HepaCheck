@@ -1258,10 +1258,47 @@ with tab_project:
 
 
 with tab_user:
-    st.title("나의 혈액 검사 분석")
+    # 1장 사용자 화면 전용 스타일: 첫 화면에서 서비스 목적과 입력 순서가 분명히 보이도록 구성합니다.
+    st.markdown(
+        """
+        <style>
+        .hc-hero {
+            padding: 2.1rem 2rem 1.8rem 2rem; border-radius: 22px;
+            background: linear-gradient(120deg, #102b46 0%, #155e75 58%, #0f766e 100%);
+            color: #ffffff; margin: 0.4rem 0 1.1rem 0;
+            box-shadow: 0 12px 30px rgba(15, 45, 65, .16);
+        }
+        .hc-kicker {font-size: .82rem; letter-spacing: .13em; font-weight: 700; opacity: .86; margin-bottom: .7rem;}
+        .hc-hero h1 {font-size: clamp(2rem, 4vw, 3.15rem); line-height: 1.15; color: white; margin: 0 0 .85rem 0; font-weight: 800;}
+        .hc-hero p {font-size: 1.02rem; line-height: 1.75; color: #e6f4f5; margin: 0; max-width: 850px;}
+        .hc-steps {display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.25rem;}
+        .hc-step {background: rgba(255,255,255,.13); border: 1px solid rgba(255,255,255,.23); padding: .48rem .8rem; border-radius: 999px; font-size: .88rem; color: white;}
+        .hc-section {font-size: 1.23rem; font-weight: 750; margin: .35rem 0 .25rem 0;}
+        .hc-note {border-left: 4px solid #0f766e; background: #eff8f7; color: #163b3a; padding: .9rem 1rem; border-radius: 0 12px 12px 0; line-height: 1.65; margin: .7rem 0 1rem 0;}
+        @media (prefers-color-scheme: dark) {.hc-note {background:#153331;color:#e5f5f2;}}
+        </style>
+        <section class="hc-hero">
+          <div class="hc-kicker">HEPACHECK · BLOOD TEST DATA ANALYSIS</div>
+          <h1>헌혈 가능 여부를<br>확인하는 데 참고가 되는 분석</h1>
+          <p>나이와 성별, 총콜레스테롤 및 보유한 혈액 검사 수치를 입력하면 기존 데이터의 분류 패턴과 비교해 결과를 안내합니다.
+          내 검사 정보가 어떤 분류군의 데이터와 더 비슷한지 이해하는 데 활용해 보세요.</p>
+          <div class="hc-steps">
+            <span class="hc-step">01 필수 정보 입력</span>
+            <span class="hc-step">02 추가 검사값 선택</span>
+            <span class="hc-step">03 결과와 비교 근거 확인</span>
+          </div>
+        </section>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        "<div class='hc-note'><b>먼저 확인해 주세요.</b> HepaCheck은 교육 및 데이터 분석을 위한 분류 모델입니다. 실제 헌혈 가능 여부는 이 서비스가 판정할 수 없으며, 헌혈 현장의 문진·검사와 기관 기준에 따라 결정됩니다.</div>",
+        unsafe_allow_html=True
+    )
     st.write(
-        "분석을 시작하려면 나이, 성별, 콜레스테롤 수치를 반드시 입력해야 합니다. "
-        "그 외 혈액 검사 수치는 알고 있는 경우 선택적으로 추가할 수 있습니다."
+        "이용 방법은 간단합니다. 먼저 필수 정보 세 가지를 입력하고, 검사 결과지에 다른 항목도 있다면 해당 수치만 추가해 주세요. "
+        "입력한 항목과 같은 변수 조합으로 데이터의 분류 패턴을 분석한 뒤, 예측 결과와 입력값 비교 자료를 차례로 보여드립니다. "
+        "모든 검사를 입력할 필요는 없지만, 입력 정보가 제한적이면 분석 근거가 부족해 예측 대신 참고용 데이터 분포만 제공될 수 있습니다."
     )
 
     st.warning(
@@ -1273,11 +1310,12 @@ with tab_user:
         "건강 상태에 대한 정확한 판단과 추가 검사가 필요한 경우 의료진과 상담하시기 바랍니다."
     )
 
-    st.subheader("1. 필수 정보 입력")
-    st.info("⭐ 아래 세 항목은 분석을 위해 반드시 입력해야 합니다: 나이 · 성별 · 콜레스테롤")
+    st.markdown("<div class='hc-section'>1. 필수 정보 입력</div>", unsafe_allow_html=True)
+    st.info("⭐ 나이 · 성별 · 총콜레스테롤(CHOL)은 분석을 시작하기 위해 반드시 입력해야 합니다.")
     st.caption(
-        "필수 항목을 모두 입력해야 분석을 진행할 수 있습니다. 그 외 혈액 검사 수치는 선택 사항이며, "
-        "입력하지 않은 항목을 임의의 값으로 채워 예측하지 않습니다."
+        "이 세 항목은 현재 분석 화면에서 모든 이용자에게 공통으로 요구하는 기본 정보입니다. "
+        "검사 결과지에 적힌 수치를 확인해 입력해 주세요. 나머지 혈액 검사 항목은 결과를 알고 있을 때만 추가하면 됩니다. "
+        "입력하지 않은 선택 항목은 임의로 추정하거나 0으로 간주하지 않고, 해당 항목을 제외한 별도의 입력 조합으로 분석합니다."
     )
 
     help_text = {
@@ -1301,8 +1339,11 @@ with tab_user:
     # 값이 비어 있거나 성별을 선택하지 않으면 제출 후 분석을 진행하지 않습니다.
     with st.form("adaptive_personal_analysis_form"):
         with st.container(border=True):
-            st.markdown("### ⭐ 반드시 입력해야 하는 항목")
-            st.caption("세 항목을 모두 입력한 뒤 분석 버튼을 눌러 주세요.")
+            st.markdown("### ⭐ 분석을 위한 필수 입력 항목")
+            st.write(
+                "아래 세 항목은 비워 둘 수 없습니다. 검사 결과지를 보면서 단위를 확인한 뒤 입력해 주세요. "
+                "나이는 19~77세 범위에서 선택할 수 있으며, 이 범위는 분석에 사용한 원본 데이터에서 관찰된 나이 범위입니다."
+            )
             c1, c2, c3 = st.columns(3)
             with c1:
                 age_value = st.number_input(
@@ -1314,7 +1355,7 @@ with tab_user:
                     placeholder=f"{age_min}~{age_max}세",
                     help=f"현재 데이터에서 확인되는 나이 범위인 {age_min}~{age_max}세만 입력할 수 있습니다."
                 )
-                st.caption(f"입력 가능: {age_min}~{age_max}세")
+                st.caption(f"입력 범위: {age_min}~{age_max}세 · 원본 데이터에 포함된 연령 범위")
             with c2:
                 observed_sex = sorted(
                     modeling_source["Sex"].dropna().astype(str).str.strip().loc[
@@ -1337,14 +1378,18 @@ with tab_user:
                     step=0.1,
                     format="%.3f",
                     placeholder="검사 결과 입력",
-                    help="건강검진 결과지에 표시된 총 콜레스테롤(CHOL) 수치를 입력하세요."
+                    help="검사 결과지에서 총콜레스테롤 또는 CHOL 항목을 찾아 수치를 입력하세요. HDL·LDL 콜레스테롤 수치와는 다른 항목이므로, 총콜레스테롤 값인지 확인해 주세요."
                 )
-                st.caption("검사 결과지의 CHOL 값 입력")
+                st.caption("총콜레스테롤(CHOL) 값을 입력하세요. HDL 또는 LDL 수치를 대신 입력하지 마세요.")
 
-        st.markdown("**2. 추가 혈액 검사 수치 선택 입력 (선택 사항)**")
+        st.markdown("<div class='hc-section'>2. 추가 혈액 검사 수치 입력 <span style='font-size:.82rem;color:#64748b;font-weight:500'>(선택 사항)</span></div>", unsafe_allow_html=True)
+        st.write(
+            "검사 결과지에 다른 항목의 수치도 있다면 해당 항목의 체크박스를 선택하고 값을 입력해 주세요. "
+            "각 항목 이름 옆에는 이해를 돕기 위한 한국어 명칭을 표시했습니다. 검사 결과가 없는 항목은 체크하지 않아도 됩니다."
+        )
         st.caption(
-            "나이·성별·콜레스테롤 외에 알고 있는 검사 수치가 있다면 추가하세요. "
-            "선택한 항목만 분석 모델에 포함됩니다."
+            "선택한 항목만 해당 조합의 분류 모델에 사용됩니다. 검사하지 않은 항목을 임의의 숫자로 입력하거나 "
+            "다른 항목의 값으로 대체하지 마세요. 입력 조합에 따라 모델 성능이 충분하지 않으면 예측 대신 참고 분포만 제공할 수 있습니다."
         )
         selected_labs = []
         lab_values = {}
@@ -1376,7 +1421,10 @@ with tab_user:
         )
 
     if submit_analysis and (age_value is None or sex_value is None or chol_value is None):
-        st.error("분석을 진행하려면 나이, 성별, 콜레스테롤 세 항목을 모두 입력해 주세요.")
+        st.error(
+            "아직 필수 정보가 모두 입력되지 않았습니다. 나이와 성별을 입력·선택하고, "
+            "검사 결과지의 총콜레스테롤(CHOL) 수치까지 입력한 뒤 다시 분석을 눌러 주세요."
+        )
 
     if submit_analysis and age_value is not None and sex_value is not None and chol_value is not None:
         selected_features = ["Age", "Sex", "CHOL"] + [
@@ -1389,8 +1437,10 @@ with tab_user:
         st.divider()
         st.subheader("3. 분석에 사용한 정보")
         st.write(
-            f"필수 입력: 나이, 성별, 콜레스테롤 / 추가 검사 수치 {len(selected_labs)}개 "
-            f"({', '.join(selected_labs) if selected_labs else '추가 검사 수치 없음'})"
+            f"이번 분석에는 필수 정보인 나이 {int(age_value)}세, 성별, 총콜레스테롤 {float(chol_value):g}와 "
+            f"추가로 선택한 검사 항목 {len(selected_labs)}개가 사용됩니다. "
+            f"추가 항목: {', '.join(selected_labs) if selected_labs else '없음'}. "
+            "아래 표에서 입력값을 한 번 더 확인해 주세요. 값이나 항목을 잘못 선택했다면 결과를 해석하기 전에 입력 화면으로 돌아가 수정하는 것이 좋습니다."
         )
         st.dataframe(user_input, use_container_width=True, hide_index=True)
 
@@ -1470,7 +1520,12 @@ with tab_user:
                     )
 
                 st.success(
-                    f"입력한 {len(selected_features)}개 항목 조합의 {n_splits}-Fold 교차 검증을 완료했습니다."
+                    f"입력한 {len(selected_features)}개 항목 조합에 대한 모델 검증을 마쳤습니다."
+                )
+                st.write(
+                    f"현재 입력 조합을 사용해 데이터를 {n_splits}개 묶음으로 나누고, 각 묶음을 번갈아 평가하는 "
+                    "교차 검증을 수행했습니다. 아래 점수는 이 데이터 안에서 모델이 두 분류군을 구분한 정도를 요약한 값입니다. "
+                    "점수 하나만으로 개인의 건강 상태나 실제 진단 결과를 판단할 수는 없습니다."
                 )
                 cv_metrics = pd.DataFrame([{
                     "교차 검증 재현율 평균": float(cv_result["test_recall"].mean()),
@@ -1483,8 +1538,9 @@ with tab_user:
                     hide_index=True
                 )
                 st.caption(
-                    "위 점수는 현재 CSV 안에서 수행한 교차 검증 결과이며 외부 병원 데이터로 "
-                    "검증한 성능이 아닙니다. 입력 조합에 따라 결과가 달라질 수 있습니다."
+                    "재현율은 간 질환 관련 대상자군을 얼마나 놓치지 않고 찾아냈는지, F1-score는 재현율과 정밀도의 균형을, "
+                    "ROC-AUC는 두 분류군을 구분하는 전반적인 능력을 요약합니다. 이 값들은 현재 CSV 내부의 교차 검증 결과이며 "
+                    "외부 의료기관이나 실제 이용자 집단에서 검증된 성능이 아닙니다. 따라서 실제 검사나 진료를 대신할 수 없습니다."
                 )
 
                 mean_cv_auc = float(cv_result["test_roc_auc"].mean())
@@ -1544,17 +1600,36 @@ with tab_user:
                     p1 = probability_map.get(1, 0.0)
 
                     st.divider()
-                    st.subheader("4. 나의 분류 예측 결과")
+                    st.subheader("3. 분석 결과 및 안내")
+                    st.write(
+                        "입력하신 정보와 학습 데이터에서 관찰된 분류 패턴을 비교한 결과입니다. "
+                        "아래 결과는 두 분류군 가운데 모델이 어느 쪽에 더 가까운 점수를 부여했는지 보여줍니다. "
+                        "실제 헌혈 적합 여부나 질병 유무를 확정하는 판정은 아닙니다."
+                    )
                     if predicted == 0:
-                        st.success("모델 예측 분류군: 일반 헌혈자군 (Target 0)")
+                        st.success("분석 결과: 일반 헌혈자군의 데이터 패턴과 더 유사합니다.")
+                        st.markdown(
+                            "**안내 말씀**\n\n"
+                            "입력하신 정보는 기존 데이터에서 관찰된 일반 헌혈자군의 특징과 더 유사한 것으로 분석되었습니다. "
+                            "다만 이 결과만으로 실제 헌혈이 가능하다고 판단할 수는 없습니다. 헌혈 가능 여부는 당일 건강 상태, "
+                            "문진 내용, 현장 혈액 검사 및 헌혈 기관의 기준에 따라 달라질 수 있으므로, 실제 헌혈을 원하신다면 "
+                            "헌혈의 집 등 공식 헌혈 기관에서 확인해 주세요."
+                        )
                     else:
-                        st.warning("모델 예측 분류군: 간 질환 관련 대상자군 (Target 1)")
+                        st.warning("분석 결과: 간 질환 관련 대상자군의 데이터 패턴과 더 유사합니다.")
+                        st.markdown(
+                            "**안내 말씀**\n\n"
+                            "입력하신 정보는 기존 데이터에서 관찰된 간염·섬유화·간경변 대상자군의 특징과 더 유사한 것으로 분석되었습니다. "
+                            "이는 간 질환이 있다는 확정적인 의미가 아니며, 모델이 질병을 진단하거나 이상을 발견했다는 뜻도 아닙니다. "
+                            "건강 상태가 걱정되거나 검사 결과에 대한 정확한 해석이 필요하다면 의료진과 상담해 보시기를 권장합니다."
+                        )
                     m1, m2 = st.columns(2)
                     m1.metric("일반 헌혈자군 모델 출력값", f"{p0 * 100:.1f}%")
                     m2.metric("간 질환 관련 대상자군 모델 출력값", f"{p1 * 100:.1f}%")
                     st.caption(
-                        "모델 출력값은 학습 데이터에서 관찰된 패턴에 따른 분류 점수이며, "
-                        "실제 질병 발생 확률이나 개인의 건강 위험도를 뜻하지 않습니다."
+                        "각 퍼센트는 모델이 두 분류군에 부여한 상대적인 출력값입니다. 예를 들어 간 질환 관련 대상자군 출력값이 70%라고 해도 "
+                        "실제로 질병이 있을 확률이 70%이거나 헌혈이 불가능하다는 뜻은 아닙니다. 학습 데이터의 구성과 입력한 검사 항목에 따라 "
+                        "값이 달라질 수 있으므로, 이 수치만으로 건강 상태나 헌혈 가능 여부를 단정하지 마세요."
                     )
 
                     prob_df = pd.DataFrame({
@@ -1574,8 +1649,10 @@ with tab_user:
                     st.divider()
                     st.subheader("5. 입력값과 기존 데이터 분포 비교")
                     st.write(
-                        "입력한 수치가 기존 데이터의 두 분류군에서 어떤 위치에 있는지 비교합니다. "
-                        "중앙값과 백분위는 통계적 분포 비교일 뿐, 의학적 정상·비정상 판정이 아닙니다."
+                        "이 표는 입력한 수치와 원본 데이터에 포함된 두 분류군의 대표적인 수치를 나란히 보여줍니다. "
+                        "중앙값은 각 집단을 크기순으로 정렬했을 때 가운데에 해당하는 값이고, 백분위는 해당 집단의 관측값 중 "
+                        "입력값 이하인 값이 어느 정도 비율인지 나타냅니다. 이를 통해 입력값이 데이터 분포에서 어느 위치에 있는지 "
+                        "살펴볼 수 있지만, 의학적 정상 범위나 질병 여부를 판정하는 기준은 아닙니다."
                     )
                     group0 = modeling_source.loc[modeling_source["Target"] == 0]
                     group1 = modeling_source.loc[modeling_source["Target"] == 1]
@@ -1605,10 +1682,12 @@ with tab_user:
                         st.info("필수 항목인 나이·성별·콜레스테롤을 기준으로 분석했습니다. 추가 검사 수치는 입력되지 않았습니다.")
 
                     st.divider()
-                    st.subheader("6. 예측 결과에 대한 참고 근거")
+                    st.subheader("6. 예측 결과를 이해하기 위한 참고 근거")
                     st.write(
-                        "아래 민감도 분석은 입력한 각 수치 또는 성별을 데이터의 대표값으로 하나씩 바꾸었을 때 "
-                        "모델 출력이 얼마나 달라지는지 보여줍니다. 인과관계나 질병 원인을 설명하는 것은 아닙니다."
+                        "아래 표는 입력한 항목을 한 번에 하나씩 학습 데이터의 대표값(수치형은 중앙값, 성별은 가장 자주 관찰된 값)으로 "
+                        "바꾸었을 때 Target 1 모델 출력값이 얼마나 변하는지 살펴보는 민감도 분석입니다. 변화량이 크다면 해당 항목의 값을 "
+                        "바꿨을 때 모델의 출력도 비교적 크게 달라졌다는 뜻입니다. 다만 이것은 모델 내부 반응을 확인하는 참고 분석이며, "
+                        "그 항목이 질병을 일으켰다는 뜻이나 개인의 결과에 대한 의학적 원인 설명은 아닙니다."
                     )
                     sensitivity_rows = []
                     base_probability = p1
@@ -1676,6 +1755,7 @@ with tab_user:
 
     st.divider()
     st.caption(
-        "Target 0은 데이터의 일반 헌혈자군, Target 1은 Hepatitis·Fibrosis·Cirrhosis를 통합한 그룹입니다. "
-        "의심 헌혈자(0s)는 이진 분류 학습에서 제외했습니다."
+        "분류 기준 안내: Target 0은 원본 데이터의 일반 헌혈자군이며, Target 1은 간염(Hepatitis)·간섬유화(Fibrosis)·간경변(Cirrhosis)을 "
+        "하나로 묶은 간 질환 관련 대상자군입니다. 의심 헌혈자(0s)는 두 집단 중 어느 쪽으로도 단정하기 어려워 이진 분류 모델 학습에서 제외했습니다. "
+        "이 분류 체계는 해당 데이터셋의 라벨을 교육 목적으로 재구성한 것이며, 실제 의료기관의 진단 기준과 동일하지 않습니다."
     )
