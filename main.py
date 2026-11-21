@@ -1288,11 +1288,26 @@ with tab_user:
     }
     optional_labs = ["CHOL", "ALT", "AST", "GGT", "ALB", "ALP", "BIL", "CHE", "CREA", "PROT"]
 
+    # 입력 가능 나이는 현재 학습 데이터의 실제 범위로 제한합니다.
+    # hcvdat0.csv 기준 최솟값 19세, 최댓값 77세입니다.
+    age_series = pd.to_numeric(modeling_source["Age"], errors="coerce").dropna()
+    age_min = int(age_series.min()) if not age_series.empty else 19
+    age_max = int(age_series.max()) if not age_series.empty else 77
+    age_default = min(max(35, age_min), age_max)
+
     # 입력 양식: 사용자가 체크한 수치만 실제 모델의 독립 변수에 포함합니다.
     with st.form("adaptive_personal_analysis_form"):
         c1, c2 = st.columns(2)
         with c1:
-            age_value = st.number_input("나이(Age)", min_value=1, max_value=120, value=35, step=1)
+            age_value = st.number_input(
+                "나이(Age)",
+                min_value=age_min,
+                max_value=age_max,
+                value=age_default,
+                step=1,
+                help=f"현재 데이터에서 확인되는 나이 범위인 {age_min}~{age_max}세만 입력할 수 있습니다."
+            )
+            st.caption(f"입력 가능 연령: {age_min}세~{age_max}세 (기존 데이터 기준)")
         with c2:
             observed_sex = sorted(
                 modeling_source["Sex"].dropna().astype(str).str.strip().loc[
