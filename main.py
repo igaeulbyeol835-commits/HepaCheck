@@ -1260,8 +1260,8 @@ with tab_project:
 with tab_user:
     st.title("나의 혈액 검사 분석")
     st.write(
-        "현재 알고 있는 정보의 양에 맞춰 분석 방법을 선택할 수 있습니다. "
-        "나이와 성별만으로 시작하고, 알고 있는 혈액 검사 수치가 있다면 선택적으로 추가하세요."
+        "분석을 시작하려면 나이, 성별, 콜레스테롤 수치를 반드시 입력해야 합니다. "
+        "그 외 혈액 검사 수치는 알고 있는 경우 선택적으로 추가할 수 있습니다."
     )
 
     st.warning(
@@ -1273,9 +1273,10 @@ with tab_user:
         "건강 상태에 대한 정확한 판단과 추가 검사가 필요한 경우 의료진과 상담하시기 바랍니다."
     )
 
-    st.subheader("1. 기본 정보 입력")
+    st.subheader("1. 필수 정보 입력")
+    st.info("⭐ 아래 세 항목은 분석을 위해 반드시 입력해야 합니다: 나이 · 성별 · 콜레스테롤")
     st.caption(
-        "나이와 성별은 필수 입력 항목입니다. 혈액 검사 수치는 알고 있는 항목만 선택해 추가할 수 있습니다. "
+        "필수 항목을 모두 입력해야 분석을 진행할 수 있습니다. 그 외 혈액 검사 수치는 선택 사항이며, "
         "입력하지 않은 항목을 임의의 값으로 채워 예측하지 않습니다."
     )
 
@@ -1286,7 +1287,8 @@ with tab_user:
         "CHOL": "콜레스테롤", "CREA": "크레아티닌",
         "GGT": "감마 글루타밀전이효소", "PROT": "총단백질"
     }
-    optional_labs = ["CHOL", "ALT", "AST", "GGT", "ALB", "ALP", "BIL", "CHE", "CREA", "PROT"]
+    # CHOL은 필수 항목이므로 선택 입력 목록에서는 제외합니다.
+    optional_labs = ["ALT", "AST", "GGT", "ALB", "ALP", "BIL", "CHE", "CREA", "PROT"]
 
     # 입력 가능 나이는 현재 학습 데이터의 실제 범위로 제한합니다.
     # hcvdat0.csv 기준 최솟값 19세, 최댓값 77세입니다.
@@ -1295,36 +1297,54 @@ with tab_user:
     age_max = int(age_series.max()) if not age_series.empty else 77
     age_default = min(max(35, age_min), age_max)
 
-    # 입력 양식: 사용자가 체크한 수치만 실제 모델의 독립 변수에 포함합니다.
+    # 필수 세 항목을 테두리 영역과 열 배치로 강조합니다.
+    # 값이 비어 있거나 성별을 선택하지 않으면 제출 후 분석을 진행하지 않습니다.
     with st.form("adaptive_personal_analysis_form"):
-        c1, c2 = st.columns(2)
-        with c1:
-            age_value = st.number_input(
-                "나이(Age)",
-                min_value=age_min,
-                max_value=age_max,
-                value=age_default,
-                step=1,
-                help=f"현재 데이터에서 확인되는 나이 범위인 {age_min}~{age_max}세만 입력할 수 있습니다."
-            )
-            st.caption(f"입력 가능 연령: {age_min}세~{age_max}세 (기존 데이터 기준)")
-        with c2:
-            observed_sex = sorted(
-                modeling_source["Sex"].dropna().astype(str).str.strip().loc[
-                    lambda s: s.ne("")
-                ].unique().tolist()
-            )
-            sex_options = observed_sex if observed_sex else ["m", "f"]
-            sex_value = st.selectbox(
-                "성별(Sex)",
-                options=sex_options,
-                format_func=lambda x: {"m": "남성", "f": "여성"}.get(x.lower(), x)
-            )
+        with st.container(border=True):
+            st.markdown("### ⭐ 반드시 입력해야 하는 항목")
+            st.caption("세 항목을 모두 입력한 뒤 분석 버튼을 눌러 주세요.")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                age_value = st.number_input(
+                    "나이(Age) · 필수",
+                    min_value=age_min,
+                    max_value=age_max,
+                    value=None,
+                    step=1,
+                    placeholder=f"{age_min}~{age_max}세",
+                    help=f"현재 데이터에서 확인되는 나이 범위인 {age_min}~{age_max}세만 입력할 수 있습니다."
+                )
+                st.caption(f"입력 가능: {age_min}~{age_max}세")
+            with c2:
+                observed_sex = sorted(
+                    modeling_source["Sex"].dropna().astype(str).str.strip().loc[
+                        lambda s: s.ne("")
+                    ].unique().tolist()
+                )
+                sex_options = observed_sex if observed_sex else ["m", "f"]
+                sex_value = st.selectbox(
+                    "성별(Sex) · 필수",
+                    options=sex_options,
+                    index=None,
+                    placeholder="성별을 선택하세요",
+                    format_func=lambda x: {"m": "남성", "f": "여성"}.get(x.lower(), x)
+                )
+            with c3:
+                chol_value = st.number_input(
+                    "콜레스테롤(CHOL) · 필수",
+                    min_value=0.0,
+                    value=None,
+                    step=0.1,
+                    format="%.3f",
+                    placeholder="검사 결과 입력",
+                    help="건강검진 결과지에 표시된 총 콜레스테롤(CHOL) 수치를 입력하세요."
+                )
+                st.caption("검사 결과지의 CHOL 값 입력")
 
-        st.markdown("**2. 알고 있는 혈액 검사 수치 선택 입력**")
+        st.markdown("**2. 추가 혈액 검사 수치 선택 입력 (선택 사항)**")
         st.caption(
-            "예: 건강검진 결과지에서 콜레스테롤 수치만 알고 있다면 CHOL만 선택하면 됩니다. "
-            "선택한 항목만 별도 분석 모델에 사용됩니다."
+            "나이·성별·콜레스테롤 외에 알고 있는 검사 수치가 있다면 추가하세요. "
+            "선택한 항목만 분석 모델에 포함됩니다."
         )
         selected_labs = []
         lab_values = {}
@@ -1355,18 +1375,21 @@ with tab_user:
             use_container_width=True
         )
 
-    if submit_analysis:
-        selected_features = ["Age", "Sex"] + [
+    if submit_analysis and (age_value is None or sex_value is None or chol_value is None):
+        st.error("분석을 진행하려면 나이, 성별, 콜레스테롤 세 항목을 모두 입력해 주세요.")
+
+    if submit_analysis and age_value is not None and sex_value is not None and chol_value is not None:
+        selected_features = ["Age", "Sex", "CHOL"] + [
             feature for feature in optional_labs if feature in selected_labs
         ]
-        user_row = {"Age": float(age_value), "Sex": sex_value}
+        user_row = {"Age": float(age_value), "Sex": sex_value, "CHOL": float(chol_value)}
         user_row.update({feature: float(lab_values[feature]) for feature in selected_labs})
         user_input = pd.DataFrame([user_row], columns=selected_features)
 
         st.divider()
         st.subheader("3. 분석에 사용한 정보")
         st.write(
-            f"입력 정보: 나이, 성별 및 혈액 검사 수치 {len(selected_labs)}개 "
+            f"필수 입력: 나이, 성별, 콜레스테롤 / 추가 검사 수치 {len(selected_labs)}개 "
             f"({', '.join(selected_labs) if selected_labs else '추가 검사 수치 없음'})"
         )
         st.dataframe(user_input, use_container_width=True, hide_index=True)
@@ -1579,7 +1602,7 @@ with tab_user:
                             hide_index=True
                         )
                     else:
-                        st.info("수치형 혈액 검사 항목을 추가하지 않아 나이·성별 모델 결과만 표시했습니다.")
+                        st.info("필수 항목인 나이·성별·콜레스테롤을 기준으로 분석했습니다. 추가 검사 수치는 입력되지 않았습니다.")
 
                     st.divider()
                     st.subheader("6. 예측 결과에 대한 참고 근거")
