@@ -10,21 +10,21 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
 # 배포 파일별 표시 설정: 캐릭터 버전은 True, 캐릭터 없는 버전은 False
-SHOW_MASCOT = False
+SHOW_MASCOT = False  # 최종 디자인: 캐릭터 미사용
 
 # ---------------------------------------------------------
 # 1. 페이지 기본 설정
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="HepaCheck | 혈액 검사 기반 간 질환 분류 시스템",
-    page_icon="🩸",
+    page_icon="H",
     layout="wide"
 )
 
 # HepaCheck 공통 디자인 시스템: 미니멀 메디컬(아이보리·세이지 그린)
 st.markdown("""
 <style>
-:root { --hc-ink:#31443a; --hc-green:#64836c; --hc-soft:#eef3eb; --hc-line:#e1e8df; }
+:root { --hc-ink:#354c38; --hc-green:#71866b; --hc-soft:#f3ebdd; --hc-line:#e5d8c4; }
 .stApp { background: #f7f8f3; }
 [data-testid="stHeader"] { background: rgba(247,248,243,.88); }
 .block-container { max-width: 1180px; padding-top: 1.7rem; padding-bottom: 3rem; }
@@ -51,8 +51,42 @@ h1,h2,h3 { color: #31443a; letter-spacing: -.025em; }
 .hc-mascot-caption {font-size:.78rem;color:#607a63;font-weight:750;margin-top:.25rem;}
 .hc-section {font-size:1.2rem;font-weight:800;color:#3d5744;margin:.45rem 0 .3rem 0;}
 @media(max-width:650px){.hc-hero{padding:1.45rem 1.25rem}.hc-hero-grid{grid-template-columns:1fr}.hc-mascot-wrap{display:none}.hc-hero h1{font-size:2rem}}
+/* SOFT PREMIUM redesign: mascot-free, warm editorial healthcare identity */
+.stApp { background:#F3EBDD; color:#354C38; }
+[data-testid="stHeader"] { background:rgba(243,235,221,.92); }
+.block-container { max-width:1240px; padding-top:2rem; padding-bottom:4rem; }
+h1,h2,h3,h4 { color:#354C38 !important; letter-spacing:-.035em; }
+p, label, [data-testid="stMarkdownContainer"] { color:#536253; }
+.hc-brand { gap:.85rem; margin:0 0 1.55rem 0; }
+.hc-brand-mark { width:46px;height:46px;border-radius:15px;background:#354C38;color:#F3EBDD;font-family:Georgia,serif;font-size:1.45rem;font-weight:700;letter-spacing:-.08em; }
+.hc-brand-name { font-family:Georgia,'Times New Roman',serif;font-size:1.42rem;font-weight:700;color:#354C38;letter-spacing:-.035em; }
+.hc-brand-sub { color:#7D8878;font-size:.76rem;letter-spacing:.045em; }
+.hc-hero { padding:clamp(2rem,5vw,4.2rem); border-radius:7px; background:#E5D8C4; border:1px solid #D9CBB6; color:#354C38; margin:.3rem 0 1.35rem 0; }
+.hc-hero-grid { display:block; }
+.hc-kicker { color:#71866B;font-size:.72rem;letter-spacing:.19em;font-weight:800;margin-bottom:1.2rem; }
+.hc-hero h1 { color:#354C38 !important;font-family:Georgia,'Times New Roman',serif;font-size:clamp(2.25rem,5.4vw,4.5rem);font-weight:500;line-height:1.08;letter-spacing:-.055em;max-width:850px;margin:0 0 1.25rem 0; }
+.hc-hero p { color:#586858;font-size:1.02rem;line-height:1.9;max-width:780px; }
+.hc-steps { gap:.55rem;margin-top:1.6rem; }
+.hc-step { background:rgba(255,255,255,.48);border:1px solid rgba(83,98,83,.18);border-radius:3px;padding:.55rem .8rem;color:#52664f;font-size:.78rem;letter-spacing:.015em; }
+.hc-note { border-left:3px solid #71866B;background:#E9E8D9;color:#485b48;border-radius:0 4px 4px 0;padding:1rem 1.15rem; }
+.hc-section { color:#354C38;font-family:Georgia,'Times New Roman',serif;font-size:1.38rem;font-weight:600;margin:1.6rem 0 .55rem; }
+[data-testid="stTabs"] { border-bottom:1px solid #D9CBB6; }
+[data-testid="stTabs"] button[role="tab"] { color:#7A8476;font-weight:650;padding:1rem 1.2rem; }
+[data-testid="stTabs"] button[aria-selected="true"] { color:#354C38;border-bottom:2px solid #71866B; }
+[data-testid="stMetric"] { background:#FBF8F1;border:1px solid #E5D8C4;border-radius:5px;padding:1rem 1.1rem; }
+[data-testid="stMetricLabel"] { color:#788273; }
+[data-testid="stMetricValue"] { color:#354C38; }
+[data-testid="stForm"], [data-testid="stExpander"] { background:rgba(251,248,241,.55);border:1px solid #E2D6C3;border-radius:5px; }
+[data-testid="stVerticalBlockBorderWrapper"] > div { border-color:#E2D6C3 !important;border-radius:5px !important;background:rgba(251,248,241,.45); }
+.stButton > button, [data-testid="stFormSubmitButton"] > button { background:#354C38;color:#F8F4EA;border:1px solid #354C38;border-radius:3px;padding:.58rem 1.15rem;font-weight:650; }
+.stButton > button:hover, [data-testid="stFormSubmitButton"] > button:hover { background:#526A50;color:white;border-color:#526A50; }
+[data-baseweb="input"] > div, [data-baseweb="select"] > div, [data-testid="stNumberInput"] input { background:#FBF8F1;border-color:#D9CBB6; }
+[data-testid="stDataFrame"] { border:1px solid #E5D8C4;border-radius:4px;overflow:hidden; }
+[data-testid="stAlert"] { border-radius:4px; }
+hr { border-color:#DED2BF; }
+@media(max-width:650px){.hc-hero{padding:1.7rem 1.25rem}.hc-hero h1{font-size:2.45rem}}
 </style>
-<div class="hc-brand"><div class="hc-brand-mark">🌿</div><div><div class="hc-brand-name">HepaCheck</div><div class="hc-brand-sub">혈액 검사 데이터 분석 서비스</div></div></div>
+<div class="hc-brand"><div class="hc-brand-mark">H</div><div><div class="hc-brand-name">HepaCheck</div><div class="hc-brand-sub">혈액 검사 데이터 분석 서비스</div></div></div>
 """, unsafe_allow_html=True)
 
 # main.py와 같은 폴더에 있는 CSV 파일을 불러옵니다.
@@ -1291,7 +1325,7 @@ with tab_project:
 
 
 with tab_user:
-    # 1장: 서비스 소개 영역. SHOW_MASCOT 값만 버전별로 달라집니다.
+    # 1장: 캐릭터 없이 소프트 프리미엄 브랜드형 서비스 소개 영역.
     mascot_markup = """
       <div class="hc-mascot-wrap">
         <svg class="hc-mascot" viewBox="0 0 180 190" role="img" aria-label="초록색 바이오 안내 마스코트">
@@ -1315,8 +1349,8 @@ with tab_user:
       <section class="hc-hero"><div class="hc-hero-grid">
         <div>
           <div class="hc-kicker">HEPACHECK · BLOOD TEST DATA ANALYSIS</div>
-          <h1>헌혈 가능 여부를<br>확인하는 데 참고가 되는 분석</h1>
-          <p>나이와 성별, 총콜레스테롤 및 보유한 혈액 검사 수치를 입력하면 기존 데이터의 분류 패턴과 비교해 결과를 안내합니다. 내 검사 정보가 어떤 분류군의 데이터와 더 비슷한지 이해하는 데 활용해 보세요.</p>
+          <h1>내 혈액 검사 데이터,<br>어떤 패턴에 가까울까요?</h1>
+          <p>나이와 성별, 총콜레스테롤 및 보유한 혈액 검사 수치를 바탕으로 기존 데이터의 분류 패턴을 살펴봅니다. 입력한 검사 정보가 어떤 집단의 데이터 특징과 더 유사한지 확인해 보세요.</p>
           <div class="hc-steps"><span class="hc-step">01 필수 정보 입력</span><span class="hc-step">02 추가 검사값 선택</span><span class="hc-step">03 결과와 비교 근거 확인</span></div>
         </div>
         {mascot_markup}
@@ -1324,7 +1358,7 @@ with tab_user:
     """
     st.markdown(hero_html, unsafe_allow_html=True)
     st.markdown(
-        "<div class='hc-note'><b>먼저 확인해 주세요.</b> HepaCheck은 교육 및 데이터 분석을 위한 분류 모델입니다. 실제 헌혈 가능 여부는 이 서비스가 판정할 수 없으며, 헌혈 현장의 문진·검사와 기관 기준에 따라 결정됩니다.</div>",
+        "<div class='hc-note'><b>분석 이용 전 안내</b><br>HepaCheck은 교육 및 데이터 분석을 위한 분류 모델입니다. 실제 헌혈 가능 여부는 이 서비스가 판정할 수 없으며, 헌혈 현장의 문진·검사와 기관 기준에 따라 결정됩니다.</div>",
         unsafe_allow_html=True
     )
     st.write(
