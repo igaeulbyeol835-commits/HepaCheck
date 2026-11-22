@@ -85,6 +85,36 @@ p, label, [data-testid="stMarkdownContainer"] { color:#536253; }
 [data-testid="stAlert"] { border-radius:4px; }
 hr { border-color:#DED2BF; }
 @media(max-width:650px){.hc-hero{padding:1.7rem 1.25rem}.hc-hero h1{font-size:2.45rem}}
+/* Chapter 1 readability refinement: strengthen text contrast without changing layout or content */
+.stApp, .stApp p, .stApp li,
+[data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li {
+    color: #354C38 !important;
+}
+.stApp label, [data-testid="stWidgetLabel"] p,
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p,
+small, .stApp small {
+    color: #536253 !important;
+}
+.stApp [data-testid="stText"], .stApp [data-testid="stMarkdownContainer"] strong,
+.stApp b, .stApp strong {
+    color: #2D4031 !important;
+}
+.hc-kicker { color: #526B4E !important; }
+.hc-hero p { color: #405442 !important; }
+.hc-step { color: #354C38 !important; background: #F8F4EA !important; border-color: #B8C2AE !important; }
+.hc-note { color: #354C38 !important; background: #E6E8D9 !important; }
+[data-testid="stTabs"] button[role="tab"] { color: #536253 !important; }
+[data-testid="stTabs"] button[aria-selected="true"] { color: #263D2B !important; }
+[data-baseweb="input"] input, [data-baseweb="select"] *,
+[data-testid="stNumberInput"] input, [data-testid="stTextInput"] input {
+    color: #263D2B !important;
+}
+[data-baseweb="input"] input::placeholder { color: #687568 !important; opacity: 1; }
+[data-testid="stMetricLabel"] { color: #536253 !important; }
+[data-testid="stMetricValue"] { color: #263D2B !important; }
+[data-testid="stAlert"] [data-testid="stMarkdownContainer"],
+[data-testid="stAlert"] p { color: #354C38 !important; }
 </style>
 <div class="hc-brand"><div class="hc-brand-mark">H</div><div><div class="hc-brand-name">HepaCheck</div><div class="hc-brand-sub">혈액 검사 데이터 분석 서비스</div></div></div>
 """, unsafe_allow_html=True)
@@ -189,7 +219,7 @@ category_order = df["Category"].dropna().drop_duplicates().tolist()
 # 사용자에게 필요한 예측 기능을 첫 번째 장으로, 수행 과정과 분석 도구를 두 번째 장으로 구분합니다.
 tab_user, tab_project = st.tabs([
     "1장. 나의 혈액 검사 분석",
-    "2장. 프로젝트 수행 과정"
+    "2장. 데이터 분석실"
 ])
 
 with tab_project:
